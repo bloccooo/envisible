@@ -1,0 +1,288 @@
+import { useState, useEffect } from "react";
+import { Box, Text, useInput, useApp } from "ink";
+import * as A from "@automerge/automerge";
+import type { Workspace } from "../types";
+import type { StorageBackend } from "../storage";
+import { addSecret, removeSecret, updateSecret } from "../secrets";
+import { addProject, removeProject, updateProject, setProjectSecrets } from "../projects";
+import { persist } from "../store";
+import { ProjectPane } from "./ProjectPane";
+import { SecretPane } from "./SecretPane";
+import { Form, type FormField } from "./Form";
+import { ProjectSecretsView } from "./ProjectSecretsView";
+
+type Mode = "list" | "new-secret" | "new-project" | "edit-secret" | "edit-project" | "project-secrets";
+
+const SECRET_FIELDS: FormField[] = [
+  { label: "Name" },
+  { label: "Value", secret: true },
+  { label: "Description" },
+  { label: "Tags (comma-separated)" },
+];
+
+const PROJECT_FIELDS: FormField[] = [{ label: "Name" }];
+
+export const App = ({
+  initialDoc,
+  backend,
+}: {
+  initialDoc: A.Doc<Workspace>;
+  backend: StorageBackend;
+}) => {
+  const { exit } = useApp();
+  const [doc, setDoc] = useState(initialDoc);
+  const [mode, setMode] = useState<Mode>("list");
+  const [focus, setFocus] = useState<"projects" | "secrets">("projects");
+  const [projIdx, setProjIdx] = useState(0);
+  const [secIdx, setSecIdx] = useState(0);
+  const [showValues, setShowValues] = useState(false);
+  const [syncing, setSyncing] = useState(false);
+
+  // Form state
+  const [fieldIdx, setFieldIdx] = useState(0);
+  const [fieldInput, setFieldInput] = useState("");
+  const [cursor, setCursor] = useState(0);
+  const [collectedValues, setCollectedValues] = useState<string[]>([]);
+  const [initialValues, setInitialValues] = useState<string[]>([]);
+  const [editingId, setEditingId] = useState<string | null>(null);
+
+  // Project-secrets checklist state
+  const [psCursor, setPsCursor] = useState(0);
+  const [psSelectedIds, setPsSelectedIds] = useState<Set<string>>(new Set());
+
+  const projects = Object.values(doc.projects);
+  const secrets = Object.values(doc.secrets);
+  const fields = mode === "new-secret" || mode === "edit-secret" ? SECRET_FIELDS : PROJECT_FIELDS;
+
+  useEffect(() => {
+    setSyncing(true);
+    persist(doc, backend)
+      .catch(console.error)
+      .finally(() => setSyncing(false));
+  }, [doc]);
+
+  const openNewForm = (m: "new-secret" | "new-project") => {
+    setMode(m);
+    setEditingId(null);
+    setInitialValues([]);
+    setFieldIdx(0);
+    setFieldInput("");
+    setCursor(0);
+    setCollectedValues([]);
+  };
+
+  const openEditForm = (m: "edit-secret" | "edit-project", id: string, values: string[]) => {
+    setMode(m);
+    setEditingId(id);
+    setInitialValues(values);
+    setFieldIdx(0);
+    const first = values[0] ?? "";
+    setFieldInput(first);
+    setCursor(first.length);
+    setCollectedValues([]);
+  };
+
+  const openProjectSecrets = (projectId: string) => {
+    const project = doc.projects[projectId];
+    if (!project) return;
+    setPsCursor(0);
+    setPsSelectedIds(new Set(project.secret_ids));
+    setEditingId(projectId);
+    setMode("project-secrets");
+  };
+
+  const advanceField = (value: string) => {
+    const nextIdx = fieldIdx + 1;
+    const nextInitial = initialValues[nextIdx] ?? "";
+    setCollectedValues((prev) => [...prev, value]);
+    setFieldIdx(nextIdx);
+    setFieldInput(nextInitial);
+    setCursor(nextInitial.length);
+  };
+
+  const submitForm = (allValues: string[]) => {
+    if (mode === "new-secret") {
+      const [name = "", value = "", description = "", tagsStr = ""] = allValues;
+      setDoc((d) => addSecret(d, { name, value, description, tags: tagsStr.split(",").map((t) => t.trim()).filter(Boolean) }));
+    } else if (mode === "new-project") {
+      const [name = ""] = allValues;
+      setDoc((d) => addProject(d, name));
+    } else if (mode === "edit-secret" && editingId) {
+      const [name = "", value = "", description = "", tagsStr = ""] = allValues;
+      setDoc((d) => updateSecret(d, editingId, { name, value, description, tags: tagsStr.split(",").map((t) => t.trim()).filter(Boolean) }));
+    } else if (mode === "edit-project" && editingId) {
+      const [name = ""] = allValues;
+      setDoc((d) => updateProject(d, editingId, name));
+    }
+    setMode("list");
+  };
+
+  useInput((char, key) => {
+    // --- Project-secrets checklist ---
+    if (mode === "project-secrets") {
+      if (key.escape) { setMode("list"); return; }
+
+      if (key.upArrow)   { setPsCursor((c) => Math.max(0, c - 1)); return; }
+      if (key.downArrow) { setPsCursor((c) => Math.min(secrets.length - 1, c + 1)); return; }
+
+      if (char === " ") {
+        const secret = secrets[psCursor];
+        if (secret) {
+          setPsSelectedIds((prev) => {
+            const next = new Set(prev);
+            next.has(secret.id) ? next.delete(secret.id) : next.add(secret.id);
+            return next;
+          });
+        }
+        return;
+      }
+
+      if (key.return && editingId) {
+        setDoc((d) => setProjectSecrets(d, editingId, [...psSelectedIds]));
+        setMode("list");
+        return;
+      }
+      return;
+    }
+
+    // --- Form mode ---
+    if (mode !== "list") {
+      if (key.escape) { setMode("list"); return; }
+
+      if (key.return) {
+        const allValues = [...collectedValues, fieldInput];
+        if (fieldIdx < fields.length - 1) {
+          advanceField(fieldInput);
+        } else {
+          submitForm(allValues);
+        }
+        return;
+      }
+
+      if (key.leftArrow)  { setCursor((c) => Math.max(0, c - 1)); return; }
+      if (key.rightArrow) { setCursor((c) => Math.min(fieldInput.length, c + 1)); return; }
+      if (key.home) { setCursor(0); return; }
+      if (key.end)  { setCursor(fieldInput.length); return; }
+
+      if (key.backspace || key.delete) {
+        if (cursor > 0) {
+          setFieldInput((v) => v.slice(0, cursor - 1) + v.slice(cursor));
+          setCursor((c) => c - 1);
+        }
+        return;
+      }
+
+      if (char && !key.ctrl && !key.meta) {
+        setFieldInput((v) => v.slice(0, cursor) + char + v.slice(cursor));
+        setCursor((c) => c + 1);
+      }
+      return;
+    }
+
+    // --- List mode ---
+    if (char === "q") { exit(); return; }
+    if (key.tab) { setFocus((f) => (f === "projects" ? "secrets" : "projects")); return; }
+    if (char === "v") { setShowValues((s) => !s); return; }
+    if (char === "n") { openNewForm(focus === "projects" ? "new-project" : "new-secret"); return; }
+
+    if (key.upArrow) {
+      if (focus === "projects") setProjIdx((i) => Math.max(0, i - 1));
+      else setSecIdx((i) => Math.max(0, i - 1));
+      return;
+    }
+    if (key.downArrow) {
+      if (focus === "projects") setProjIdx((i) => Math.min(projects.length - 1, i + 1));
+      else setSecIdx((i) => Math.min(secrets.length - 1, i + 1));
+      return;
+    }
+
+    if (char === "e") {
+      if (focus === "secrets") {
+        const sec = secrets[secIdx];
+        if (sec) openEditForm("edit-secret", sec.id, [sec.name, sec.value, sec.description, sec.tags.join(", ")]);
+      } else {
+        const proj = projects[projIdx];
+        if (proj) openEditForm("edit-project", proj.id, [proj.name]);
+      }
+      return;
+    }
+
+    if (char === "s" && focus === "projects") {
+      const proj = projects[projIdx];
+      if (proj) openProjectSecrets(proj.id);
+      return;
+    }
+
+    if (char === "d") {
+      if (focus === "projects") {
+        const proj = projects[projIdx];
+        if (proj) {
+          setDoc((d) => removeProject(d, proj.id));
+          setProjIdx((i) => Math.max(0, i - 1));
+        }
+      } else {
+        const sec = secrets[secIdx];
+        if (sec) {
+          setDoc((d) => removeSecret(d, sec.id));
+          setSecIdx((i) => Math.max(0, i - 1));
+        }
+      }
+    }
+  });
+
+  if (mode === "project-secrets") {
+    const proj = editingId ? doc.projects[editingId] : null;
+    return (
+      <ProjectSecretsView
+        projectName={proj?.name ?? ""}
+        secrets={secrets}
+        selectedIds={psSelectedIds}
+        cursor={psCursor}
+      />
+    );
+  }
+
+  if (mode !== "list") {
+    const title =
+      mode === "new-secret" ? "New Secret" :
+      mode === "new-project" ? "New Project" :
+      mode === "edit-secret" ? "Edit Secret" : "Edit Project";
+    return (
+      <Box flexDirection="column" padding={1}>
+        <Form
+          title={title}
+          fields={fields}
+          currentField={fieldIdx}
+          completedValues={collectedValues}
+          currentInput={fieldInput}
+          cursor={cursor}
+        />
+      </Box>
+    );
+  }
+
+  const projectFooter = focus === "projects"
+    ? "[n] New  [e] Edit  [s] Secrets  [d] Delete"
+    : "[n] New  [e] Edit  [d] Delete  [v] " + (showValues ? "Hide" : "Show") + " values";
+
+  return (
+    <Box flexDirection="column">
+      <Box paddingX={1} gap={2}>
+        <Text bold color="cyan">bKey</Text>
+        <Text dimColor>{doc.name}</Text>
+        {syncing
+          ? <Text color="yellow">↑ syncing…</Text>
+          : <Text dimColor>✓ saved</Text>}
+      </Box>
+
+      <Box flexDirection="row" marginTop={1} gap={1}>
+        <ProjectPane projects={projects} selected={projIdx} focused={focus === "projects"} />
+        <SecretPane secrets={secrets} selected={secIdx} focused={focus === "secrets"} showValues={showValues} />
+      </Box>
+
+      <Box marginTop={1} paddingX={1}>
+        <Text dimColor>{projectFooter}  [Tab] Switch pane  [q] Quit</Text>
+      </Box>
+    </Box>
+  );
+};
