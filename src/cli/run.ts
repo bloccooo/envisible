@@ -39,7 +39,7 @@ export async function cmdRun(args: string[]) {
 
   // Load doc from storage
   const config = await readConfig();
-  const backend = config ? backendFromConfig(config.storage) : localBackend(".");
+  const backend = config ? await backendFromConfig(config.storage) : localBackend(".");
   const doc = await loadOrCreate(backend);
 
   const allSecrets = listSecrets(doc);

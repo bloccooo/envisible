@@ -8,7 +8,7 @@ import { loadOrCreate } from "../store";
 
 export async function cmdUi() {
   const config = await readConfig();
-  const backend = config ? backendFromConfig(config.storage) : localBackend(".");
+  const backend = config ? await backendFromConfig(config.storage) : localBackend(".");
 
   const { rerender } = render(
     React.createElement(Box, { paddingX: 1 },

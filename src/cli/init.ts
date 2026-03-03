@@ -1,5 +1,6 @@
 import * as p from "@clack/prompts";
 import { writeConfig, readConfig, type StorageConfig } from "../config";
+import { saveCredentials } from "../keychain";
 
 export async function cmdInit() {
   const existing = await readConfig();
@@ -51,9 +52,11 @@ export async function cmdInit() {
       bucket: group.bucket,
       region: group.region,
       ...(group.endpoint ? { endpoint: group.endpoint } : {}),
+    };
+    await saveCredentials("s3", {
       accessKeyId: group.accessKeyId,
       secretAccessKey: group.secretAccessKey,
-    };
+    });
 
   } else if (backend === "r2") {
     const group = await p.group({
@@ -62,7 +65,11 @@ export async function cmdInit() {
       accessKeyId: () => p.text({ message: "R2 Access Key ID" }),
       secretAccessKey: () => p.password({ message: "R2 Secret Access Key" }),
     }, { onCancel: () => { p.cancel("Cancelled."); process.exit(0); } });
-    storage = { backend: "r2", ...group };
+    storage = { backend: "r2", accountId: group.accountId, bucket: group.bucket };
+    await saveCredentials("r2", {
+      accessKeyId: group.accessKeyId,
+      secretAccessKey: group.secretAccessKey,
+    });
 
   } else {
     const group = await p.group({
@@ -70,12 +77,11 @@ export async function cmdInit() {
       username: () => p.text({ message: "Username (leave blank if none)", defaultValue: "" }),
       password: () => p.password({ message: "Password (leave blank if none)" }),
     }, { onCancel: () => { p.cancel("Cancelled."); process.exit(0); } });
-    storage = {
-      backend: "webdav",
-      endpoint: group.endpoint,
+    storage = { backend: "webdav", endpoint: group.endpoint };
+    await saveCredentials("webdav", {
       ...(group.username ? { username: group.username } : {}),
       ...(group.password ? { password: group.password } : {}),
-    };
+    });
   }
 
   await writeConfig({ storage });

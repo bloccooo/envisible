@@ -1,5 +1,6 @@
 import { Operator } from "opendal";
 import { configToBackendOptions, type StorageConfig } from "./config";
+import { loadCredentials } from "./keychain";
 
 const DOC_PATH = "bkey.enc";
 
@@ -58,10 +59,11 @@ export function s3Backend(config: S3Config): StorageBackend {
   };
 }
 
-// --- Backend from bkey.config.json ---
+// --- Backend from bkey.config.json (credentials loaded from keychain) ---
 
-export function backendFromConfig(config: StorageConfig): StorageBackend {
-  const { type, options } = configToBackendOptions(config);
+export async function backendFromConfig(config: StorageConfig): Promise<StorageBackend> {
+  const creds = await loadCredentials(config.backend) ?? {};
+  const { type, options } = configToBackendOptions(config, creds);
   const op = new Operator(type, options);
   return {
     async push(data) {
