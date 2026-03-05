@@ -6,6 +6,7 @@ import type { StorageBackend } from "../storage";
 import { addSecret, removeSecret, updateSecret, listSecrets } from "../secrets";
 import { addProject, removeProject, updateProject, setProjectSecrets } from "../projects";
 import { persist, type Session } from "../store";
+import { wrapDek } from "../crypto";
 import { ProjectPane } from "./ProjectPane";
 import { SecretPane } from "./SecretPane";
 import { MembersPane } from "./MembersPane";
@@ -55,6 +56,7 @@ export const App = ({
 
   const [memberIdx, setMemberIdx] = useState(0);
   const [memberToDelete, setMemberToDelete] = useState<string | null>(null);
+  const [memberToGrant, setMemberToGrant] = useState<string | null>(null);
 
   const projects = Object.values(doc.projects);
   const secrets: PlaintextSecret[] = listSecrets(doc, session.dek);
@@ -133,6 +135,23 @@ export const App = ({
         setMemberToDelete(null);
       } else if (char === "n" || key.escape) {
         setMemberToDelete(null);
+      }
+      return;
+    }
+
+    // --- Member grant confirmation ---
+    if (memberToGrant !== null) {
+      if (char === "y") {
+        const member = members.find((m) => m.id === memberToGrant);
+        if (member) {
+          setDoc((d) => A.change(d, "grant access", (w) => {
+            const entry = w.members[member.id];
+            if (entry) entry.wrappedDek = wrapDek(session.dek, Buffer.from(member.publicKey, "base64"));
+          }));
+        }
+        setMemberToGrant(null);
+      } else if (char === "n" || key.escape) {
+        setMemberToGrant(null);
       }
       return;
     }
@@ -260,6 +279,13 @@ export const App = ({
         }
       }
     }
+
+    if (char === "g" && focus === "members") {
+      const member = members[memberIdx];
+      if (member && !member.wrappedDek) {
+        setMemberToGrant(member.id);
+      }
+    }
   });
 
   if (mode === "project-secrets") {
@@ -293,10 +319,11 @@ export const App = ({
     );
   }
 
+  const selectedMember = members[memberIdx];
   const footer =
     focus === "projects" ? "[n] New  [e] Edit  [s] Secrets  [d] Delete" :
     focus === "secrets"  ? "[n] New  [e] Edit  [d] Delete  [v] " + (showValues ? "Hide" : "Show") + " values" :
-    "[d] Remove member";
+    (selectedMember?.wrappedDek === "" ? "[g] Grant access  " : "") + "[d] Remove member";
 
   return (
     <Box flexDirection="column">
@@ -319,6 +346,8 @@ export const App = ({
       <Box marginTop={1} paddingX={1}>
         {memberToDelete !== null
           ? <Text color="yellow">Remove {members.find(m => m.id === memberToDelete)?.email}? [y] Yes  [n] No</Text>
+          : memberToGrant !== null
+          ? <Text color="yellow">Grant access to {members.find(m => m.id === memberToGrant)?.email}? [y] Yes  [n] No</Text>
           : <Text dimColor>{footer}  [Tab] Switch pane  [q] Quit</Text>}
       </Box>
     </Box>
