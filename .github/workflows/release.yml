@@ -38,7 +38,7 @@ jobs:
         run: bun install
 
       - name: Build binary
-        run: bun build --compile --target=${{ matrix.bun-target }} cli.ts --outfile bkey-${{ matrix.target }}
+        run: bun build.ts ${{ matrix.bun-target }} bkey-${{ matrix.target }}
 
       - name: Upload artifact
         uses: actions/upload-artifact@v4
