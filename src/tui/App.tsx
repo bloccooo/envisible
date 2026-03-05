@@ -68,6 +68,7 @@ export const App = ({
   useEffect(() => {
     setSyncing(true);
     persist(doc, backend, cacheBackend())
+      .then((merged) => { if (merged !== doc) setDoc(merged); })
       .catch(console.error)
       .finally(() => setSyncing(false));
   }, [doc]);

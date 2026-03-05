@@ -16,7 +16,7 @@ async function tryPull(backend: StorageBackend): Promise<Uint8Array | null> {
     return await Promise.race([
       backend.pull(),
       new Promise<never>((_, reject) =>
-        setTimeout(() => reject(new Error("timeout")), SYNC_TIMEOUT_MS)
+        setTimeout(() => reject(new Error("timeout")), SYNC_TIMEOUT_MS),
       ),
     ]);
   } catch {
@@ -73,7 +73,9 @@ export async function loadOrCreate(
  * Read the workspaceId from the local cache without creating or syncing anything.
  * Returns null if no cache exists yet.
  */
-export async function peekWorkspaceId(cache: StorageBackend): Promise<string | null> {
+export async function peekWorkspaceId(
+  cache: StorageBackend,
+): Promise<string | null> {
   const binary = await cache.pull();
   if (!binary) return null;
   try {
@@ -88,14 +90,18 @@ export async function peekWorkspaceId(cache: StorageBackend): Promise<string | n
  */
 export async function unlock(
   doc: A.Doc<Workspace>,
-  privateKey: Uint8Array
+  privateKey: Uint8Array,
 ): Promise<{ session: Session; doc: A.Doc<Workspace> }> {
   const publicKey = getPublicKey(privateKey);
   const pubKeyB64 = Buffer.from(publicKey).toString("base64");
 
-  const member = Object.values(doc.members).find((m) => m.publicKey === pubKeyB64);
-  if (!member) throw new Error("Not a member of this workspace. Run: bkey request-access");
-  if (!member.wrappedDek) throw new Error("Access pending — an existing member needs to sync first.");
+  const member = Object.values(doc.members).find(
+    (m) => m.publicKey === pubKeyB64,
+  );
+  if (!member)
+    throw new Error("Not a member of this workspace. Run: bkey request-access");
+  if (!member.wrappedDek)
+    throw new Error("Access pending — an existing member needs to sync first.");
 
   const dek = unwrapDek(member.wrappedDek, privateKey);
   const session: Session = { memberId: member.id, dek };
@@ -104,14 +110,22 @@ export async function unlock(
 }
 
 /**
- * Persist the doc — always writes to local cache, best-effort push to remote.
+ * Persist the doc — merges with remote first to avoid clobbering concurrent
+ * changes, then writes to local cache and best-effort pushes to remote.
+ * Returns the (potentially merged) doc.
  */
 export async function persist(
   doc: A.Doc<Workspace>,
   remote: StorageBackend,
   cache: StorageBackend,
-): Promise<void> {
+): Promise<A.Doc<Workspace>> {
+  const remoteBinary = await tryPull(remote);
+  if (remoteBinary) {
+    const remoteDoc = A.load<Workspace>(remoteBinary);
+    doc = A.merge(doc, remoteDoc);
+  }
   const binary = A.save(doc);
   await cache.push(binary);
   remote.push(binary).catch(() => {});
+  return doc;
 }
