@@ -2,7 +2,7 @@ import * as A from "@automerge/automerge";
 import { randomUUIDv7 } from "bun";
 import type { Workspace } from "./types";
 import type { StorageBackend } from "./storage";
-import { getPublicKey, unwrapDek, wrapDek } from "./crypto";
+import { getPublicKey, unwrapDek } from "./crypto";
 
 export type Session = {
   memberId: string;
@@ -50,19 +50,6 @@ export async function unlock(
 
   const dek = unwrapDek(member.wrappedDek, privateKey);
   const session: Session = { memberId: member.id, dek };
-
-  // Grant access to any pending members
-  const pending = Object.values(doc.members).filter((m) => !m.wrappedDek);
-  if (pending.length > 0) {
-    doc = A.change(doc, "grant pending access", (d) => {
-      for (const m of pending) {
-        const entry = d.members[m.id];
-        if (!entry) continue;
-        const pubKey = Buffer.from(m.publicKey, "base64");
-        entry.wrappedDek = wrapDek(dek, pubKey);
-      }
-    });
-  }
 
   return { session, doc };
 }

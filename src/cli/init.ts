@@ -4,7 +4,9 @@ import * as A from "@automerge/automerge";
 import { writeConfig, readConfig, type StorageConfig } from "../config";
 import { saveCredentials, saveIdentity } from "../keychain";
 import { backendFromConfig } from "../storage";
+import type { StorageBackend } from "../storage";
 import { loadOrCreate, persist } from "../store";
+import type { Workspace } from "../types";
 import {
   derivePrivateKey,
   getPublicKey,
@@ -14,19 +16,52 @@ import {
 
 export async function cmdInit() {
   const existing = await readConfig();
-  if (existing) {
-    const overwrite = await p.confirm({
-      message: "bkey.config.json already exists. Overwrite?",
-      initialValue: false,
-    });
-    if (p.isCancel(overwrite) || !overwrite) {
-      p.cancel("Init cancelled.");
-      return;
-    }
-  }
 
   p.intro("bkey init");
 
+  // Step 1: Storage config — always needed to reach the shared doc
+  let storage: StorageConfig;
+  if (existing?.workspaceId) {
+    const overwrite = await p.confirm({
+      message: "bkey.config.json already exists. Reconfigure storage?",
+      initialValue: false,
+    });
+    if (p.isCancel(overwrite)) {
+      p.cancel("Cancelled.");
+      return;
+    }
+    if (overwrite) {
+      const result = await collectStorageConfig();
+      if (!result) return;
+      storage = result;
+    } else {
+      p.log.info(`Using existing ${existing.storage.backend} storage config.`);
+      storage = existing.storage;
+    }
+  } else {
+    const result = await collectStorageConfig();
+    if (!result) return;
+    storage = result;
+  }
+
+  // Step 2: Load doc — branch on whether the workspace already has members
+  const backend = await backendFromConfig(storage);
+  const doc = await loadOrCreate(backend);
+  const members = Object.values(doc.members ?? {});
+
+  if (members.length > 0) {
+    // Workspace is already initialised → this user is joining, request access
+    await requestAccessFlow(doc, backend);
+    if (!existing) {
+      await writeConfig({ storage, workspaceId: doc.id });
+    }
+  } else {
+    // Fresh workspace → full init (create DEK, add first member)
+    await fullInitFlow(storage, backend, doc);
+  }
+}
+
+async function collectStorageConfig(): Promise<StorageConfig | null> {
   const backend = await p.select({
     message: "Choose a storage backend",
     options: [
@@ -42,10 +77,8 @@ export async function cmdInit() {
   });
   if (p.isCancel(backend)) {
     p.cancel("Cancelled.");
-    return;
+    return null;
   }
-
-  let storage: StorageConfig;
 
   if (backend === "local") {
     const root = await p.text({
@@ -55,10 +88,12 @@ export async function cmdInit() {
     });
     if (p.isCancel(root)) {
       p.cancel("Cancelled.");
-      return;
+      return null;
     }
-    storage = { backend: "local", root };
-  } else if (backend === "s3") {
+    return { backend: "local", root };
+  }
+
+  if (backend === "s3") {
     const group = await p.group(
       {
         bucket: () => p.text({ message: "Bucket name" }),
@@ -77,24 +112,21 @@ export async function cmdInit() {
         accessKeyId: () => p.text({ message: "Access Key ID" }),
         secretAccessKey: () => p.password({ message: "Secret Access Key" }),
       },
-      {
-        onCancel: () => {
-          p.cancel("Cancelled.");
-          process.exit(0);
-        },
-      },
+      { onCancel: () => { p.cancel("Cancelled."); process.exit(0); } }
     );
-    storage = {
+    await saveCredentials("s3", {
+      accessKeyId: group.accessKeyId,
+      secretAccessKey: group.secretAccessKey,
+    });
+    return {
       backend: "s3",
       bucket: group.bucket,
       region: group.region,
       ...(group.endpoint ? { endpoint: group.endpoint } : {}),
     };
-    await saveCredentials("s3", {
-      accessKeyId: group.accessKeyId,
-      secretAccessKey: group.secretAccessKey,
-    });
-  } else if (backend === "r2") {
+  }
+
+  if (backend === "r2") {
     const group = await p.group(
       {
         accountId: () => p.text({ message: "Cloudflare Account ID" }),
@@ -102,53 +134,89 @@ export async function cmdInit() {
         accessKeyId: () => p.text({ message: "R2 Access Key ID" }),
         secretAccessKey: () => p.password({ message: "R2 Secret Access Key" }),
       },
-      {
-        onCancel: () => {
-          p.cancel("Cancelled.");
-          process.exit(0);
-        },
-      },
+      { onCancel: () => { p.cancel("Cancelled."); process.exit(0); } }
     );
-    storage = {
-      backend: "r2",
-      accountId: group.accountId,
-      bucket: group.bucket,
-    };
     await saveCredentials("r2", {
       accessKeyId: group.accessKeyId,
       secretAccessKey: group.secretAccessKey,
     });
-  } else {
-    const group = await p.group(
-      {
-        endpoint: () =>
-          p.text({
-            message: "WebDAV endpoint URL",
-            placeholder: "https://dav.example.com/vault",
-          }),
-        username: () =>
-          p.text({
-            message: "Username (leave blank if none)",
-            defaultValue: "",
-          }),
-        password: () =>
-          p.password({ message: "Password (leave blank if none)" }),
-      },
-      {
-        onCancel: () => {
-          p.cancel("Cancelled.");
-          process.exit(0);
-        },
-      },
-    );
-    storage = { backend: "webdav", endpoint: group.endpoint };
-    await saveCredentials("webdav", {
-      ...(group.username ? { username: group.username } : {}),
-      ...(group.password ? { password: group.password } : {}),
-    });
+    return {
+      backend: "r2",
+      accountId: group.accountId,
+      bucket: group.bucket,
+    };
   }
 
-  // --- Passphrase & encryption key setup ---
+  // webdav
+  const group = await p.group(
+    {
+      endpoint: () =>
+        p.text({
+          message: "WebDAV endpoint URL",
+          placeholder: "https://dav.example.com/vault",
+        }),
+      username: () =>
+        p.text({ message: "Username (leave blank if none)", defaultValue: "" }),
+      password: () =>
+        p.password({ message: "Password (leave blank if none)" }),
+    },
+    { onCancel: () => { p.cancel("Cancelled."); process.exit(0); } }
+  );
+  await saveCredentials("webdav", {
+    ...(group.username ? { username: group.username } : {}),
+    ...(group.password ? { password: group.password } : {}),
+  });
+  return { backend: "webdav", endpoint: group.endpoint };
+}
+
+async function requestAccessFlow(
+  doc: A.Doc<Workspace>,
+  backend: StorageBackend
+) {
+  p.log.step("Workspace found. Requesting access…");
+
+  const passphrase = await p.password({ message: "Enter your passphrase" });
+  if (p.isCancel(passphrase) || !passphrase) {
+    p.cancel("Cancelled.");
+    return;
+  }
+
+  const privateKey = derivePrivateKey(passphrase, doc.id);
+  const publicKey = getPublicKey(privateKey);
+  const pubKeyB64 = Buffer.from(publicKey).toString("base64");
+
+  const existingMember = Object.values(doc.members ?? {}).find(
+    (m) => m.publicKey === pubKeyB64
+  );
+  if (existingMember) {
+    p.outro(
+      existingMember.wrappedDek
+        ? "You already have access to this workspace."
+        : "Access request already pending. Wait for an existing member to run 'bkey grant-access'."
+    );
+    return;
+  }
+
+  const memberId = randomUUIDv7();
+  const updated = A.change(doc, "request access", (d) => {
+    if (!d.members) d.members = {};
+    d.members[memberId] = { id: memberId, publicKey: pubKeyB64, wrappedDek: "" };
+  });
+
+  await persist(updated, backend);
+  await saveIdentity(doc.id, {
+    memberId,
+    privateKey: Buffer.from(privateKey).toString("base64"),
+  });
+
+  p.outro("Access requested. An existing member needs to run 'bkey grant-access' to approve you.");
+}
+
+async function fullInitFlow(
+  storage: StorageConfig,
+  backend: StorageBackend,
+  doc: A.Doc<Workspace>
+) {
   p.log.step("Setting up encryption keys…");
 
   const passphrase = await p.password({ message: "Create a passphrase" });
@@ -167,16 +235,13 @@ export async function cmdInit() {
     return;
   }
 
-  const storageBackend = await backendFromConfig(storage);
-  let doc = await loadOrCreate(storageBackend);
-
   const memberId = randomUUIDv7();
   const privateKey = derivePrivateKey(passphrase, doc.id);
   const publicKey = getPublicKey(privateKey);
   const dek = generateDek();
   const wrappedDek = wrapDek(dek, publicKey);
 
-  doc = A.change(doc, "init members", (d) => {
+  const updated = A.change(doc, "init members", (d) => {
     if (!d.members) d.members = {};
     d.members[memberId] = {
       id: memberId,
@@ -185,12 +250,12 @@ export async function cmdInit() {
     };
   });
 
-  await persist(doc, storageBackend);
-  await saveIdentity(doc.id, {
+  await persist(updated, backend);
+  await saveIdentity(updated.id, {
     memberId,
     privateKey: Buffer.from(privateKey).toString("base64"),
   });
-  await writeConfig({ storage, workspaceId: doc.id });
+  await writeConfig({ storage, workspaceId: updated.id });
 
   p.outro("Workspace initialised. Run bkey ui to manage secrets.");
 }

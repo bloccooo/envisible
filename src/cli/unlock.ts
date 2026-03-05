@@ -2,7 +2,7 @@ import * as p from "@clack/prompts";
 import type { BKeyConfig } from "../config";
 import type { StorageBackend } from "../storage";
 import { loadIdentity, saveIdentity } from "../keychain";
-import { loadOrCreate, unlock, persist, type Session } from "../store";
+import { loadOrCreate, unlock, type Session } from "../store";
 import { derivePrivateKey } from "../crypto";
 import type * as A from "@automerge/automerge";
 import type { Workspace } from "../types";
@@ -48,11 +48,6 @@ export async function unlockWorkspace(
 
   const privateKey = Buffer.from(identity.privateKey, "base64");
   const { session, doc: updatedDoc } = await unlock(doc, privateKey);
-
-  // Persist if access was granted to pending members
-  if (updatedDoc !== doc) {
-    await persist(updatedDoc, backend);
-  }
 
   return { doc: updatedDoc, session };
 }
