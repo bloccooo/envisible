@@ -18,6 +18,7 @@ export type Project = {
 
 export type Member = {
   id: string;          // plaintext UUID (CRDT key)
+  email: string;       // plaintext identifier
   publicKey: string;   // plaintext base64 X25519 public key
   wrappedDek: string;  // ECIES-wrapped DEK; empty string = pending access
 };

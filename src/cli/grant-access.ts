@@ -29,7 +29,7 @@ export async function cmdGrantAccess() {
     message: `${pending.length} pending request(s). Select members to approve (others will be removed):`,
     options: pending.map((m) => ({
       value: m.id,
-      label: `${m.id}`,
+      label: m.email,
       hint: `key: ${m.publicKey.slice(0, 20)}…`,
     })),
     required: false,

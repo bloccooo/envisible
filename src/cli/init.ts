@@ -189,9 +189,22 @@ async function requestAccessFlow(
 ) {
   p.log.step("Workspace found. Requesting access…");
 
-  const passphrase = await p.password({ message: "Enter your passphrase" });
+  const email = await p.text({ message: "Your email address" });
+  if (p.isCancel(email) || !email) { p.cancel("Cancelled."); return; }
+
+  const passphrase = await p.password({ message: "Create a passphrase" });
   if (p.isCancel(passphrase) || !passphrase) {
     p.cancel("Cancelled.");
+    return;
+  }
+
+  const confirm = await p.password({ message: "Confirm passphrase" });
+  if (p.isCancel(confirm)) {
+    p.cancel("Cancelled.");
+    return;
+  }
+  if (passphrase !== confirm) {
+    p.cancel("Passphrases do not match.");
     return;
   }
 
@@ -216,6 +229,7 @@ async function requestAccessFlow(
     if (!d.members) d.members = {};
     d.members[memberId] = {
       id: memberId,
+      email,
       publicKey: pubKeyB64,
       wrappedDek: "",
     };
@@ -238,6 +252,9 @@ async function fullInitFlow(
   doc: A.Doc<Workspace>,
 ) {
   p.log.step("Setting up encryption keys…");
+
+  const email = await p.text({ message: "Your email address" });
+  if (p.isCancel(email) || !email) { p.cancel("Cancelled."); return; }
 
   const passphrase = await p.password({ message: "Create a passphrase" });
   if (p.isCancel(passphrase) || !passphrase) {
@@ -265,6 +282,7 @@ async function fullInitFlow(
     if (!d.members) d.members = {};
     d.members[memberId] = {
       id: memberId,
+      email,
       publicKey: Buffer.from(publicKey).toString("base64"),
       wrappedDek,
     };

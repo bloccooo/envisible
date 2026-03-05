@@ -8,6 +8,7 @@ import { addProject, removeProject, updateProject, setProjectSecrets } from "../
 import { persist, type Session } from "../store";
 import { ProjectPane } from "./ProjectPane";
 import { SecretPane } from "./SecretPane";
+import { MembersPane } from "./MembersPane";
 import { Form, type FormField } from "./Form";
 import { ProjectSecretsView } from "./ProjectSecretsView";
 
@@ -34,7 +35,7 @@ export const App = ({
   const { exit } = useApp();
   const [doc, setDoc] = useState(initialDoc);
   const [mode, setMode] = useState<Mode>("list");
-  const [focus, setFocus] = useState<"projects" | "secrets">("projects");
+  const [focus, setFocus] = useState<"projects" | "secrets" | "members">("projects");
   const [projIdx, setProjIdx] = useState(0);
   const [secIdx, setSecIdx] = useState(0);
   const [showValues, setShowValues] = useState(false);
@@ -52,8 +53,12 @@ export const App = ({
   const [psCursor, setPsCursor] = useState(0);
   const [psSelectedIds, setPsSelectedIds] = useState<Set<string>>(new Set());
 
+  const [memberIdx, setMemberIdx] = useState(0);
+  const [memberToDelete, setMemberToDelete] = useState<string | null>(null);
+
   const projects = Object.values(doc.projects);
   const secrets: PlaintextSecret[] = listSecrets(doc, session.dek);
+  const members = Object.values(doc.members ?? {});
   const fields = mode === "new-secret" || mode === "edit-secret" ? SECRET_FIELDS : PROJECT_FIELDS;
 
   useEffect(() => {
@@ -120,6 +125,18 @@ export const App = ({
   };
 
   useInput((char, key) => {
+    // --- Member delete confirmation ---
+    if (memberToDelete !== null) {
+      if (char === "y") {
+        setDoc((d) => A.change(d, "remove member", (w) => { delete w.members[memberToDelete]; }));
+        setMemberIdx((i) => Math.max(0, i - 1));
+        setMemberToDelete(null);
+      } else if (char === "n" || key.escape) {
+        setMemberToDelete(null);
+      }
+      return;
+    }
+
     // --- Project-secrets checklist ---
     if (mode === "project-secrets") {
       if (key.escape) { setMode("list"); return; }
@@ -183,18 +200,26 @@ export const App = ({
 
     // --- List mode ---
     if (char === "q") { exit(); return; }
-    if (key.tab) { setFocus((f) => (f === "projects" ? "secrets" : "projects")); return; }
+    if (key.tab) {
+      setFocus((f) => f === "projects" ? "secrets" : f === "secrets" ? "members" : "projects");
+      return;
+    }
     if (char === "v") { setShowValues((s) => !s); return; }
-    if (char === "n") { openNewForm(focus === "projects" ? "new-project" : "new-secret"); return; }
+    if (char === "n" && focus !== "members") {
+      openNewForm(focus === "projects" ? "new-project" : "new-secret");
+      return;
+    }
 
     if (key.upArrow) {
       if (focus === "projects") setProjIdx((i) => Math.max(0, i - 1));
-      else setSecIdx((i) => Math.max(0, i - 1));
+      else if (focus === "secrets") setSecIdx((i) => Math.max(0, i - 1));
+      else setMemberIdx((i) => Math.max(0, i - 1));
       return;
     }
     if (key.downArrow) {
       if (focus === "projects") setProjIdx((i) => Math.min(projects.length - 1, i + 1));
-      else setSecIdx((i) => Math.min(secrets.length - 1, i + 1));
+      else if (focus === "secrets") setSecIdx((i) => Math.min(secrets.length - 1, i + 1));
+      else setMemberIdx((i) => Math.min(members.length - 1, i + 1));
       return;
     }
 
@@ -202,7 +227,7 @@ export const App = ({
       if (focus === "secrets") {
         const sec = secrets[secIdx];
         if (sec) openEditForm("edit-secret", sec.id, [sec.name, sec.value, sec.description, sec.tags.join(", ")]);
-      } else {
+      } else if (focus === "projects") {
         const proj = projects[projIdx];
         if (proj) openEditForm("edit-project", proj.id, [proj.name]);
       }
@@ -222,11 +247,16 @@ export const App = ({
           setDoc((d) => removeProject(d, proj.id));
           setProjIdx((i) => Math.max(0, i - 1));
         }
-      } else {
+      } else if (focus === "secrets") {
         const sec = secrets[secIdx];
         if (sec) {
           setDoc((d) => removeSecret(d, sec.id));
           setSecIdx((i) => Math.max(0, i - 1));
+        }
+      } else if (focus === "members") {
+        const member = members[memberIdx];
+        if (member && member.id !== session.memberId) {
+          setMemberToDelete(member.id);
         }
       }
     }
@@ -263,9 +293,10 @@ export const App = ({
     );
   }
 
-  const projectFooter = focus === "projects"
-    ? "[n] New  [e] Edit  [s] Secrets  [d] Delete"
-    : "[n] New  [e] Edit  [d] Delete  [v] " + (showValues ? "Hide" : "Show") + " values";
+  const footer =
+    focus === "projects" ? "[n] New  [e] Edit  [s] Secrets  [d] Delete" :
+    focus === "secrets"  ? "[n] New  [e] Edit  [d] Delete  [v] " + (showValues ? "Hide" : "Show") + " values" :
+    "[d] Remove member";
 
   return (
     <Box flexDirection="column">
@@ -277,13 +308,18 @@ export const App = ({
           : <Text dimColor>✓ saved</Text>}
       </Box>
 
-      <Box flexDirection="row" marginTop={1} gap={1}>
+      <Box marginTop={1}>
+        <MembersPane members={members} selected={memberIdx} focused={focus === "members"} currentMemberId={session.memberId} />
+      </Box>
+      <Box flexDirection="row" gap={1}>
         <ProjectPane projects={projects} selected={projIdx} focused={focus === "projects"} />
         <SecretPane secrets={secrets} selected={secIdx} focused={focus === "secrets"} showValues={showValues} />
       </Box>
 
       <Box marginTop={1} paddingX={1}>
-        <Text dimColor>{projectFooter}  [Tab] Switch pane  [q] Quit</Text>
+        {memberToDelete !== null
+          ? <Text color="yellow">Remove {members.find(m => m.id === memberToDelete)?.email}? [y] Yes  [n] No</Text>
+          : <Text dimColor>{footer}  [Tab] Switch pane  [q] Quit</Text>}
       </Box>
     </Box>
   );
