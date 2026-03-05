@@ -2,7 +2,7 @@ import { useState, useEffect } from "react";
 import { Box, Text, useInput, useApp } from "ink";
 import * as A from "@automerge/automerge";
 import type { Workspace, PlaintextSecret } from "../types";
-import type { StorageBackend } from "../storage";
+import { type StorageBackend, cacheBackend } from "../storage";
 import { addSecret, removeSecret, updateSecret, listSecrets } from "../secrets";
 import { addProject, removeProject, updateProject, setProjectSecrets } from "../projects";
 import { persist, type Session } from "../store";
@@ -65,7 +65,7 @@ export const App = ({
 
   useEffect(() => {
     setSyncing(true);
-    persist(doc, backend)
+    persist(doc, backend, cacheBackend())
       .catch(console.error)
       .finally(() => setSyncing(false));
   }, [doc]);

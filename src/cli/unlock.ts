@@ -1,5 +1,5 @@
 import * as p from "@clack/prompts";
-import type { StorageBackend } from "../storage";
+import { type StorageBackend, cacheBackend } from "../storage";
 import { loadIdentity, saveIdentity } from "../keychain";
 import { loadOrCreate, unlock, type Session } from "../store";
 import { derivePrivateKey, getPublicKey } from "../crypto";
@@ -12,7 +12,7 @@ import type { Workspace } from "../types";
 export async function unlockWorkspace(
   backend: StorageBackend
 ): Promise<{ doc: A.Doc<Workspace>; session: Session }> {
-  const doc = await loadOrCreate(backend);
+  const doc = await loadOrCreate(backend, cacheBackend());
   const workspaceId = doc.id;
 
   // Try cached identity first

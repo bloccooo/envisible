@@ -3,7 +3,7 @@ import { randomUUIDv7 } from "bun";
 import * as A from "@automerge/automerge";
 import { writeConfig, readConfig, type StorageConfig } from "../config";
 import { saveCredentials, saveIdentity } from "../keychain";
-import { backendFromConfig } from "../storage";
+import { backendFromConfig, cacheBackend } from "../storage";
 import type { StorageBackend } from "../storage";
 import { loadOrCreate, persist } from "../store";
 import type { Workspace } from "../types";
@@ -46,7 +46,7 @@ export async function cmdInit() {
 
   // Step 2: Load doc — branch on whether the workspace already has members
   const backend = await backendFromConfig(storage);
-  const doc = await loadOrCreate(backend);
+  const doc = await loadOrCreate(backend, cacheBackend());
   const members = Object.values(doc.members ?? {});
 
   if (members.length > 0) {
@@ -235,7 +235,7 @@ async function requestAccessFlow(
     };
   });
 
-  await persist(updated, backend);
+  await persist(updated, backend, cacheBackend());
   await saveIdentity(doc.id, {
     memberId,
     privateKey: Buffer.from(privateKey).toString("base64"),
@@ -288,7 +288,7 @@ async function fullInitFlow(
     };
   });
 
-  await persist(updated, backend);
+  await persist(updated, backend, cacheBackend());
   await saveIdentity(updated.id, {
     memberId,
     privateKey: Buffer.from(privateKey).toString("base64"),

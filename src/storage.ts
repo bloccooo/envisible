@@ -3,6 +3,7 @@ import { configToBackendOptions, type StorageConfig } from "./config";
 import { loadCredentials } from "./keychain";
 
 const DOC_PATH = "bkey.enc";
+const CACHE_PATH = ".bkey.cache";
 
 export interface StorageBackend {
   push(data: Uint8Array): Promise<void>;
@@ -72,6 +73,24 @@ export async function backendFromConfig(config: StorageConfig): Promise<StorageB
     async pull() {
       try {
         return await op.read(DOC_PATH);
+      } catch {
+        return null;
+      }
+    },
+  };
+}
+
+// --- Local cache backend (.bkey.cache in the current directory) ---
+
+export function cacheBackend(): StorageBackend {
+  const op = new Operator("fs", { root: "." });
+  return {
+    async push(data) {
+      await op.write(CACHE_PATH, Buffer.from(data));
+    },
+    async pull() {
+      try {
+        return await op.read(CACHE_PATH);
       } catch {
         return null;
       }
