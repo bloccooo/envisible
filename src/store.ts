@@ -54,14 +54,13 @@ export class Store {
   }
 
   private async pullRemote() {
-    const isConnected = await isOnline({ timeout: 1000 });
-    if (!isConnected) return null;
-
     const path = this.getPullPath();
-    const files = await withTimeout(
-      this.remoteBackend.pull(path),
-      REMOTE_TIMEOUT_MS,
-    );
+    const [, files] = await Promise.all([
+      isOnline({ timeout: 1000 }).then((c) => {
+        if (!c) throw new Error("offline");
+      }),
+      withTimeout(this.remoteBackend.pull(path), REMOTE_TIMEOUT_MS),
+    ]);
     if (!files || files.length === 0) return null;
 
     return this.mergeFilesIntoDoc(files);
@@ -113,20 +112,18 @@ export class Store {
   async persist(doc: A.Doc<BKeyDocument>) {
     const binary = A.save(doc);
     const path = this.getPushPath();
-    const isConnected = await isOnline({ timeout: 1000 });
 
-    await Promise.all([
-      isConnected
-        ? withTimeout(
-            this.remoteBackend.push(path, binary),
-            REMOTE_TIMEOUT_MS,
-          ).catch((e) => {
-            console.log(e);
-            return null;
-          })
-        : Promise.resolve(),
-      this.localBackend.push(path, binary),
-    ]);
+    const pushRemote = Promise.all([
+      isOnline({ timeout: 1000 }).then((c) => {
+        if (!c) throw new Error("offline");
+      }),
+      withTimeout(this.remoteBackend.push(path, binary), REMOTE_TIMEOUT_MS),
+    ]).catch((e) => {
+      console.log(e);
+      return null;
+    });
+
+    await Promise.all([pushRemote, this.localBackend.push(path, binary)]);
 
     return doc;
   }
