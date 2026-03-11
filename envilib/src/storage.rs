@@ -1,4 +1,5 @@
 use crate::error::{Error, Result};
+use futures::StreamExt;
 use opendal::{services, Operator};
 use serde::{Deserialize, Serialize};
 
@@ -115,14 +116,20 @@ impl StorageBackend {
             .filter(|e| e.path().ends_with(&format!(".{DOC_EXTENSION}")))
             .collect();
 
-        let mut results = Vec::new();
-        for entry in doc_entries {
-            match self.op.read(entry.path()).await {
-                Ok(buf) => results.push(buf.to_bytes().to_vec()),
-                Err(e) if e.kind() == opendal::ErrorKind::NotFound => continue,
-                Err(e) => return Err(Error::Storage(e)),
-            }
-        }
+        const MAX_CONCURRENT: usize = 8;
+
+        let results = futures::stream::iter(doc_entries)
+            .map(|e| self.op.read(e.path()))
+            .buffer_unordered(MAX_CONCURRENT)
+            .filter_map(|r| async move {
+                match r {
+                    Ok(buf) => Some(buf.to_bytes().to_vec()),
+                    Err(e) if e.kind() == opendal::ErrorKind::NotFound => None,
+                    Err(_) => None,
+                }
+            })
+            .collect()
+            .await;
 
         Ok(results)
     }
