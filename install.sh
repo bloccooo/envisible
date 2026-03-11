@@ -2,7 +2,7 @@
 set -euo pipefail
 
 REPO="bloccooo/bKey"
-BIN="bkey"
+BIN="envi"
 INSTALL_DIR="/usr/local/bin"
 
 # Detect OS and arch

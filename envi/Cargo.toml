@@ -1,0 +1,19 @@
+[workspace]
+members = ["envilib", "cli"]
+resolver = "2"
+
+[workspace.dependencies]
+tokio = { version = "1", features = ["rt-multi-thread", "macros", "time", "fs"] }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+thiserror = "1"
+base64 = "0.22"
+automerge = "0.7"
+autosurgeon = "0.10"
+
+[profile.release]
+opt-level    = "z"   # optimize for size
+lto          = true  # full link-time optimization
+codegen-units = 1    # single codegen unit — enables maximum LTO
+panic        = "abort" # drop panic-unwinding machinery (~200–400 KB)
+strip        = true  # strip symbols and debug info
