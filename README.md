@@ -1,4 +1,4 @@
-# envi
+# Envisible [envi]
 
 A team secret manager. Secrets are stored as a [CRDT](https://automerge.org) document in a storage backend of your choice (S3, R2, WebDAV, or local). No central server required.
 
@@ -21,27 +21,27 @@ envi setup                     # create workspace
 envi setup envi-invite:<token> # join workspace
 ```
 
-### `envi ui`
+### `envi`
 
 Open the terminal UI to manage secrets, projects, and members.
 
 ```sh
-envi ui
+envi
 ```
 
 **Key bindings:**
 
-| Key | Action |
-|-----|--------|
-| `n` | New item |
-| `e` | Edit selected |
-| `d` | Delete selected |
-| `s` | Manage project secrets (project pane) |
-| `g` | Grant access to member (members pane) |
-| `i` | Generate invite link (members pane) |
-| `v` | Toggle value visibility |
-| `Tab` | Switch pane |
-| `q` | Quit |
+| Key   | Action                                |
+| ----- | ------------------------------------- |
+| `n`   | New item                              |
+| `e`   | Edit selected                         |
+| `d`   | Delete selected                       |
+| `s`   | Manage project secrets (project pane) |
+| `g`   | Grant access to member (members pane) |
+| `i`   | Generate invite link (members pane)   |
+| `v`   | Toggle value visibility               |
+| `Tab` | Switch pane                           |
+| `q`   | Quit                                  |
 
 ### `envi run`
 
