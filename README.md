@@ -1,6 +1,10 @@
 # Envisible [envi]
 
-A team secret manager. Secrets are stored as a [CRDT](https://automerge.org) document in a storage backend of your choice (S3, R2, WebDAV, or local). No central server required.
+A team secret manager. Secrets are stored encrypted in a storage backend of your choice (S3, R2, WebDAV, or local) and synced across team members using a [CRDT](https://automerge.org). No central server required.
+
+## Encryption
+
+Each workspace has a single data encryption key (DEK) used to encrypt all secret values with AES-256-GCM. The DEK is never stored in the clear — it is wrapped individually for each member using their public key (X25519 + ECIES), so only someone with the corresponding passphrase can decrypt it. The passphrase itself never leaves the device.
 
 ## Install
 
