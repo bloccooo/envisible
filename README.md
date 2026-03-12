@@ -91,6 +91,11 @@ envi clear
 
 The current implementation uses sound cryptographic primitives (AES-256-GCM, X25519/ECIES, Argon2id) but currently has known limitations.
 
+**Known bugs:**
+
+- **Password reuse across members** — because private keys are derived purely from `(passphrase, workspace_id)`, a member who knows another member's passphrase can derive their private key and decrypt secrets as them. There is no binding between a member's identity and their key material beyond the passphrase itself. Fixed by member identity verification (see below).
+- **Member name impersonation** — member names are self-declared and not verified. Nothing prevents two members from registering with the same name, or a malicious joiner from choosing a name that mimics a legitimate member. Fixed by requiring the inviting member to countersign new members (see below).
+
 **Planned hardening, roughly in priority order:**
 
 - ~~**Remove passphrase persistence**~~ — done. The passphrase is never written to disk; the derived key is held only in RAM by a short-lived background agent and cleared on `envi logout`.
