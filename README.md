@@ -6,7 +6,11 @@ Designed to limit secret exposure when working alongside AI agents: credentials 
 
 ## Encryption
 
-Secret values are encrypted with AES-256-GCM using a shared workspace key. That key is wrapped individually for each member via X25519 + ECIES, derived from their passphrase using argon2id. The passphrase never leaves the device.
+Secret values are encrypted with AES-256-GCM using a shared workspace Data Encryption Key (DEK). That key is wrapped individually for each member via X25519 + ECIES. Each member's X25519 private key is derived from their passphrase, workspace ID, and a randomly-generated member ID using Argon2id — binding the key material to that specific member in that specific workspace. The passphrase never leaves the device.
+
+Each member maintains their own Automerge document. Before persisting, the document is signed with an Ed25519 key derived from the same Argon2id output (via HKDF). When pulling, peers verify each document's signature before merging, rejecting any file that has been tampered with at the storage layer.
+
+Member public and signing keys are authenticated with a per-member HMAC-SHA256 keyed by the DEK, preventing a storage-level attacker from substituting a member's keys without being detected by any DEK holder.
 
 ## Install
 
@@ -97,16 +101,17 @@ The current implementation uses sound cryptographic primitives (AES-256-GCM, X25
 
 **Known bugs:**
 
-- **Password reuse across members** — because private keys are derived purely from `(passphrase, workspace_id)`, a member who knows another member's passphrase can derive their private key and decrypt secrets as them. There is no binding between a member's identity and their key material beyond the passphrase itself. Fixed by member identity verification (see below).
-- **Member name impersonation** — member names are self-declared and not verified. Nothing prevents two members from registering with the same name, or a malicious joiner from choosing a name that mimics a legitimate member. Fixed by requiring the inviting member to countersign new members (see below).
+- **Member name impersonation** — member names are self-declared and not verified. Nothing prevents two members from registering with the same display name, or a malicious joiner from choosing a name that mimics a legitimate member. Fixed by requiring the inviting member to countersign new members (see below).
 
 **Planned hardening, roughly in priority order:**
 
 - ~~**Remove passphrase persistence**~~ — done. The passphrase is never written to disk; the derived key is held only in RAM by a short-lived background agent and cleared on `envi logout`.
+- ~~**Password reuse across members**~~ — fixed. Private keys are now derived from `(passphrase, workspace_id, member_id)` where `member_id` is a random UUID generated at setup. Key material is bound to a specific member identity, so knowing another member's passphrase is not sufficient to derive their key.
+- ~~**Authenticated CRDT documents**~~ — done. Each member's Automerge document is signed with an Ed25519 key before being pushed to storage. Peers verify signatures before merging, rejecting tampered or forged files. Member public and signing keys are protected by a per-member HMAC-SHA256 keyed by the shared DEK, so key substitution is detectable by any DEK holder.
+- **Genesis trust anchor** — the first time a member pulls a workspace, they have no prior state to verify signing keys against (TOFU). A future version will embed a signing key fingerprint in the invite link so the first pull can be verified against the invite.
 - **Signed invite links** — invite links will be signed by the issuing member's private key. Peers will verify the signature on join, ensuring the invite was issued by a legitimate workspace member and preventing forged or tampered links.
 - **Member identity verification** — new members self-register by writing their own public key into the shared document. A future version will require the inviting member to countersign the joining member's public key, preventing a malicious actor from substituting their own key during the join flow.
 - **Single-use, expiring invite links** — invite links currently have no expiry and can be reused indefinitely. They will include a short-lived nonce so that replayed or leaked links cannot be used to register new members.
-- **Authenticated CRDT documents** — each member's automerge document will be signed with their private key. Peers will reject documents with invalid signatures, preventing a storage-level attacker from injecting rogue members or wiping secrets.
 - **Scoped secret injection** — `envi run` will require secrets to be explicitly declared (e.g. in the `.envi` file) rather than injecting the full workspace vault, limiting the blast radius of prompt-injection attacks against AI agents.
 
 ## Building from source

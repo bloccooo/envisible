@@ -14,6 +14,12 @@ pub enum Error {
     #[error("decryption failed")]
     DecryptionFailed,
 
+    #[error("invalid document signature")]
+    InvalidSignature,
+
+    #[error("key MAC verification failed for member {0}")]
+    InvalidKeyMac(String),
+
     #[error("invalid invite link")]
     InvalidInviteLink,
 

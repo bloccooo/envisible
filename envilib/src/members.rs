@@ -1,5 +1,5 @@
 use crate::{
-    crypto::{decrypt_field, encrypt_field, generate_dek, wrap_dek},
+    crypto::{compute_key_mac, decrypt_field, encrypt_field, generate_dek, wrap_dek},
     error::{Error, Result},
     types::EnviDocument,
 };
@@ -80,6 +80,10 @@ fn rotate_dek_in_state(state: &mut EnviDocument, current_dek: &[u8; 32]) -> Resu
             .try_into()
             .map_err(|_| Error::DecryptionFailed)?;
         member.wrapped_dek = wrap_dek(&new_dek, &pub_key)?;
+        // Refresh the key MAC so it remains valid under the new DEK
+        if !member.key_mac.is_empty() {
+            member.key_mac = compute_key_mac(&new_dek, &member.id, &member.public_key, &member.signing_key);
+        }
     }
 
     Ok(new_dek)

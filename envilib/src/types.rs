@@ -14,6 +14,9 @@ pub struct EnviDocument {
     pub members: HashMap<String, Member>,
     pub projects: HashMap<String, Project>,
     pub secrets: HashMap<String, Secret>,
+    /// Ed25519 signature over the canonical document bytes (excluding this field).
+    /// Format: "member_id:base64(signature)". Empty on unsigned documents.
+    pub document_signature: String,
 }
 
 #[derive(Debug, Clone, Reconcile, Hydrate, Default)]
@@ -24,6 +27,12 @@ pub struct Member {
     pub public_key: String,
     /// ECIES-wrapped DEK; empty string = pending access
     pub wrapped_dek: String,
+    /// Base64-encoded Ed25519 verifying key; empty string = old client / pending
+    pub signing_key: String,
+    /// HMAC-SHA256(DEK, member_id || ":" || public_key || ":" || signing_key).
+    /// Allows any DEK-holder to verify public keys haven't been tampered with.
+    /// Empty string = pending (set by granter when wrapping the DEK).
+    pub key_mac: String,
 }
 
 #[derive(Debug, Clone, Reconcile, Hydrate, Default)]

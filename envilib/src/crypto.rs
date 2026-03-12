@@ -1,14 +1,21 @@
 use crate::error::{Error, Result};
+use crate::types::EnviDocument;
 use aes_gcm::{
     aead::{Aead, KeyInit},
     Aes256Gcm, Key, Nonce,
 };
 use argon2::{Algorithm, Argon2, Params, Version};
 use base64::{engine::general_purpose::STANDARD as B64, Engine};
+use ed25519_dalek::{Signer, Verifier};
+use hmac::{Hmac, Mac};
 use hkdf::Hkdf;
 use rand::RngCore;
+use serde::Serialize;
 use sha2::Sha256;
+use std::collections::BTreeMap;
 use x25519_dalek::{EphemeralSecret, PublicKey, StaticSecret};
+
+type HmacSha256 = Hmac<Sha256>;
 
 // --- Key derivation ---
 
@@ -155,4 +162,196 @@ fn hkdf_derive(ikm: &[u8], salt: &[u8], info: &[u8]) -> Result<[u8; 32]> {
     hk.expand(info, &mut okm)
         .map_err(|e| Error::Other(e.to_string()))?;
     Ok(okm)
+}
+
+// --- Signing key derivation ---
+
+/// Derive an Ed25519 signing key from the Argon2id private key seed.
+/// Uses HKDF with a distinct info string so the signing key is
+/// cryptographically separated from the X25519 encryption key.
+pub fn derive_signing_key(private_key_seed: &[u8; 32]) -> ed25519_dalek::SigningKey {
+    let seed = hkdf_derive(private_key_seed, b"", b"bkey-sign-v1")
+        .expect("HKDF expansion never fails for 32-byte output");
+    ed25519_dalek::SigningKey::from_bytes(&seed)
+}
+
+// --- Document signing ---
+
+/// Sign the canonical bytes of a document.
+/// Returns the signature field value: "member_id:base64(signature)".
+pub fn sign_document(
+    canonical: &[u8],
+    member_id: &str,
+    signing_key: &ed25519_dalek::SigningKey,
+) -> String {
+    let sig = signing_key.sign(canonical);
+    format!("{}:{}", member_id, B64.encode(sig.to_bytes()))
+}
+
+/// Verify a document signature stored in the "member_id:base64(sig)" format.
+/// `verifying_key_b64` is the base64-encoded Ed25519 verifying key.
+pub fn verify_document_signature(
+    canonical: &[u8],
+    signature_field: &str,
+    verifying_key_b64: &str,
+) -> Result<()> {
+    let sig_b64 = signature_field
+        .splitn(2, ':')
+        .nth(1)
+        .ok_or(Error::InvalidSignature)?;
+
+    let sig_bytes = B64.decode(sig_b64).map_err(|_| Error::InvalidSignature)?;
+    let sig_bytes: [u8; 64] = sig_bytes.try_into().map_err(|_| Error::InvalidSignature)?;
+    let sig = ed25519_dalek::Signature::from_bytes(&sig_bytes);
+
+    let key_bytes = B64
+        .decode(verifying_key_b64)
+        .map_err(|_| Error::InvalidSignature)?;
+    let key_bytes: [u8; 32] = key_bytes.try_into().map_err(|_| Error::InvalidSignature)?;
+    let verifying_key = ed25519_dalek::VerifyingKey::from_bytes(&key_bytes)
+        .map_err(|_| Error::InvalidSignature)?;
+
+    verifying_key
+        .verify(canonical, &sig)
+        .map_err(|_| Error::InvalidSignature)
+}
+
+// --- Key MAC ---
+
+/// Compute HMAC-SHA256(DEK, member_id ":" public_key ":" signing_key).
+/// Allows any DEK-holder to verify member public/signing keys haven't been tampered with.
+pub fn compute_key_mac(
+    dek: &[u8; 32],
+    member_id: &str,
+    public_key_b64: &str,
+    signing_key_b64: &str,
+) -> String {
+    let mut mac = <HmacSha256 as hmac::Mac>::new_from_slice(dek).expect("HMAC accepts any key size");
+    mac.update(member_id.as_bytes());
+    mac.update(b":");
+    mac.update(public_key_b64.as_bytes());
+    mac.update(b":");
+    mac.update(signing_key_b64.as_bytes());
+    B64.encode(mac.finalize().into_bytes())
+}
+
+/// Verify a key MAC. Returns `Err(InvalidKeyMac)` if the MAC is wrong.
+pub fn verify_key_mac(
+    dek: &[u8; 32],
+    member_id: &str,
+    public_key_b64: &str,
+    signing_key_b64: &str,
+    mac_b64: &str,
+) -> Result<()> {
+    let expected = compute_key_mac(dek, member_id, public_key_b64, signing_key_b64);
+    if expected == mac_b64 {
+        Ok(())
+    } else {
+        Err(Error::InvalidKeyMac(member_id.to_string()))
+    }
+}
+
+// --- Canonical document serialization ---
+
+/// Serialization helpers — fields declared alphabetically so serde produces
+/// alphabetically-ordered JSON keys, giving a deterministic byte representation.
+#[derive(Serialize)]
+struct SigMember<'a> {
+    email: &'a str,
+    id: &'a str,
+    key_mac: &'a str,
+    public_key: &'a str,
+    signing_key: &'a str,
+    wrapped_dek: &'a str,
+}
+
+#[derive(Serialize)]
+struct SigProject<'a> {
+    id: &'a str,
+    name: &'a str,
+    secret_ids: &'a [String],
+}
+
+#[derive(Serialize)]
+struct SigSecret<'a> {
+    description: &'a str,
+    id: &'a str,
+    name: &'a str,
+    tags: &'a str,
+    value: &'a str,
+}
+
+#[derive(Serialize)]
+struct SigDocument<'a> {
+    doc_version: u64,
+    id: &'a str,
+    members: BTreeMap<&'a str, SigMember<'a>>,
+    name: &'a str,
+    projects: BTreeMap<&'a str, SigProject<'a>>,
+    secrets: BTreeMap<&'a str, SigSecret<'a>>,
+}
+
+/// Produce a deterministic JSON representation of `state` suitable for signing.
+/// The `document_signature` field is intentionally excluded to avoid circularity.
+pub fn canonical_document_bytes(state: &EnviDocument) -> Vec<u8> {
+    let members = state
+        .members
+        .iter()
+        .map(|(id, m)| {
+            (
+                id.as_str(),
+                SigMember {
+                    email: &m.email,
+                    id: &m.id,
+                    key_mac: &m.key_mac,
+                    public_key: &m.public_key,
+                    signing_key: &m.signing_key,
+                    wrapped_dek: &m.wrapped_dek,
+                },
+            )
+        })
+        .collect();
+
+    let projects = state
+        .projects
+        .iter()
+        .map(|(id, p)| {
+            (
+                id.as_str(),
+                SigProject {
+                    id: &p.id,
+                    name: &p.name,
+                    secret_ids: &p.secret_ids,
+                },
+            )
+        })
+        .collect();
+
+    let secrets = state
+        .secrets
+        .iter()
+        .map(|(id, s)| {
+            (
+                id.as_str(),
+                SigSecret {
+                    description: &s.description,
+                    id: &s.id,
+                    name: &s.name,
+                    tags: &s.tags,
+                    value: &s.value,
+                },
+            )
+        })
+        .collect();
+
+    let doc = SigDocument {
+        doc_version: state.doc_version,
+        id: &state.id,
+        members,
+        name: &state.name,
+        projects,
+        secrets,
+    };
+
+    serde_json::to_vec(&doc).expect("canonical serialization never fails")
 }

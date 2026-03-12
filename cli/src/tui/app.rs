@@ -4,7 +4,7 @@ use base64::engine::general_purpose::STANDARD as B64;
 use base64::Engine;
 use crossterm::event::{KeyCode, KeyEvent};
 use envilib::{
-    crypto::wrap_dek,
+    crypto::{compute_key_mac, wrap_dek},
     error::Result,
     members::{remove_member, rotate_dek},
     projects::{add_project, remove_project, set_project_secrets, update_project},
@@ -181,12 +181,12 @@ impl App {
     fn schedule_persist(&mut self) {
         let doc_bytes = self.doc.save();
         let store = Arc::clone(&self.store);
-        let _member_id = self.session.member_id.clone();
+        let signing_key = self.session.signing_key.clone();
 
         // Load a fresh doc from bytes to send to the task
         let handle = tokio::spawn(async move {
             if let Ok(mut doc) = AutoCommit::load(&doc_bytes) {
-                let _ = store.persist(&mut doc).await;
+                let _ = store.persist(&mut doc, &signing_key).await;
             }
         });
         self.persist_task = Some(handle);
@@ -628,10 +628,17 @@ impl App {
                         .try_into()
                         .map_err(|_| envilib::error::Error::DecryptionFailed)?;
                     let wrapped = wrap_dek(&self.session.dek, &pub_key)?;
+                    let key_mac = compute_key_mac(
+                        &self.session.dek,
+                        &member.id,
+                        &member.public_key,
+                        &member.signing_key,
+                    );
 
                     let mut state: EnviDocument = hydrate(&self.doc)?;
                     if let Some(m) = state.members.get_mut(&id) {
                         m.wrapped_dek = wrapped;
+                        m.key_mac = key_mac;
                     }
                     reconcile(&mut self.doc, &state)?;
                     self.refresh()?;

@@ -3,7 +3,7 @@ use base64::{engine::general_purpose::STANDARD as B64, Engine};
 use dialoguer::{Input, Password, Select};
 use envilib::{
     config::{read_config, write_config, EnviConfig, WorkspaceConfig},
-    crypto::{derive_private_key, generate_dek, get_public_key, wrap_dek},
+    crypto::{compute_key_mac, derive_private_key, derive_signing_key, generate_dek, get_public_key, wrap_dek},
     error::Result,
     invite::parse_invite,
     storage::StorageConfig,
@@ -72,6 +72,8 @@ pub async fn run(invite_link_arg: Option<String>) -> Result<()> {
 
         let private_key = derive_private_key(&passphrase, &payload.workspace.id, &config.member_id)?;
         let public_key = get_public_key(&private_key);
+        let signing_key = derive_signing_key(&private_key);
+        let signing_public_key = B64.encode(signing_key.verifying_key().to_bytes());
 
         config.workspaces.push(WorkspaceConfig {
             id: payload.workspace.id.clone(),
@@ -80,7 +82,7 @@ pub async fn run(invite_link_arg: Option<String>) -> Result<()> {
         });
         write_config(&config).await?;
 
-        // Add ourselves as a pending member
+        // Add ourselves as a pending member (key_mac set by granter who knows the DEK)
         let mut state: EnviDocument = hydrate(&doc)?;
         state.members.insert(
             config.member_id.clone(),
@@ -88,11 +90,13 @@ pub async fn run(invite_link_arg: Option<String>) -> Result<()> {
                 id: config.member_id.clone(),
                 email: config.member_name.clone(),
                 public_key: B64.encode(public_key),
+                signing_key: signing_public_key,
+                key_mac: String::new(), // set by granter when wrapping DEK
                 wrapped_dek: String::new(), // Pending — existing member must grant access
             },
         );
         reconcile(&mut doc, &state)?;
-        store.persist(&mut doc).await?;
+        store.persist(&mut doc, &signing_key).await?;
 
         println!(
             "Joined workspace '{}'. An existing member needs to sync and grant you access.",
@@ -121,8 +125,12 @@ pub async fn run(invite_link_arg: Option<String>) -> Result<()> {
 
         let private_key = derive_private_key(&passphrase, &workspace_id, &config.member_id)?;
         let public_key = get_public_key(&private_key);
+        let signing_key = derive_signing_key(&private_key);
+        let signing_public_key = B64.encode(signing_key.verifying_key().to_bytes());
         let dek = generate_dek();
         let wrapped_dek = wrap_dek(&dek, &public_key)?;
+        let public_key_b64 = B64.encode(public_key);
+        let key_mac = compute_key_mac(&dek, &config.member_id, &public_key_b64, &signing_public_key);
 
         let mut state: EnviDocument = hydrate(&doc)?;
         state.id = workspace_id;
@@ -132,12 +140,14 @@ pub async fn run(invite_link_arg: Option<String>) -> Result<()> {
             Member {
                 id: config.member_id.clone(),
                 email: config.member_name.clone(),
-                public_key: B64.encode(public_key),
+                public_key: public_key_b64,
+                signing_key: signing_public_key,
+                key_mac,
                 wrapped_dek,
             },
         );
         reconcile(&mut doc, &state)?;
-        store.persist(&mut doc).await?;
+        store.persist(&mut doc, &signing_key).await?;
 
         println!(
             "Workspace '{}' created. Run `envi ui` to manage secrets.",
