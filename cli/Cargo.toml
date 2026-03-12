@@ -17,6 +17,7 @@ automerge = { workspace = true }
 autosurgeon = { workspace = true }
 
 rand = "0.8"
+libc = "0.2"
 clap = { version = "4", features = ["derive"] }
 ratatui = "0.30"
 crossterm = "0.29"

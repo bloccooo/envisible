@@ -10,6 +10,20 @@ use std::{
     time::Duration,
 };
 
+/// Returns the controlling TTY of the current process (e.g. "/dev/pts/3").
+/// Returns an empty string if there is no TTY (headless/CI/daemon).
+fn get_tty() -> String {
+    unsafe {
+        let ptr = libc::ttyname(libc::STDIN_FILENO);
+        if ptr.is_null() {
+            return String::new();
+        }
+        std::ffi::CStr::from_ptr(ptr)
+            .to_string_lossy()
+            .into_owned()
+    }
+}
+
 const DEFAULT_TTL_SECS: u64 = 8 * 3600;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -55,8 +69,8 @@ fn write_agent_file(info: &AgentInfo) -> std::io::Result<()> {
 #[serde(tag = "type", rename_all = "snake_case")]
 enum Request {
     Ping { token: String },
-    GetKey { token: String, workspace_id: String },
-    StoreKey { token: String, workspace_id: String, key: String },
+    GetKey { token: String, workspace_id: String, session_id: String },
+    StoreKey { token: String, workspace_id: String, session_id: String, key: String },
     Kill { token: String },
 }
 
@@ -133,6 +147,7 @@ impl AgentClient {
         let resp = self.request(&Request::GetKey {
             token: self.token.clone(),
             workspace_id: workspace_id.to_string(),
+            session_id: get_tty(),
         })?;
         if !resp.ok { return None; }
         let bytes = hex::decode(resp.key?).ok()?;
@@ -143,6 +158,7 @@ impl AgentClient {
         let _ = self.request(&Request::StoreKey {
             token: self.token.clone(),
             workspace_id: workspace_id.to_string(),
+            session_id: get_tty(),
             key: hex::encode(key),
         });
     }
@@ -223,7 +239,7 @@ async fn run_server() -> Result<()> {
     write_agent_file(&AgentInfo { addr, token: token.clone() })
         .map_err(|e| Error::Other(e.to_string()))?;
 
-    let keys: Arc<Mutex<HashMap<String, [u8; 32]>>> = Arc::new(Mutex::new(HashMap::new()));
+    let keys: Arc<Mutex<HashMap<(String, String), [u8; 32]>>> = Arc::new(Mutex::new(HashMap::new()));
     let last_activity: Arc<Mutex<std::time::Instant>> =
         Arc::new(Mutex::new(std::time::Instant::now()));
 
@@ -257,7 +273,7 @@ async fn run_server() -> Result<()> {
 
 async fn handle_connection(
     stream: tokio::net::TcpStream,
-    keys: Arc<Mutex<HashMap<String, [u8; 32]>>>,
+    keys: Arc<Mutex<HashMap<(String, String), [u8; 32]>>>,
     token: String,
     last_activity: Arc<Mutex<std::time::Instant>>,
 ) {
@@ -290,17 +306,17 @@ async fn handle_connection(
 
     let (resp, should_exit) = match req {
         Request::Ping { .. } => (Response::ok(), false),
-        Request::GetKey { workspace_id, .. } => {
+        Request::GetKey { workspace_id, session_id, .. } => {
             let keys = keys.lock().unwrap();
-            match keys.get(&workspace_id) {
+            match keys.get(&(workspace_id, session_id)) {
                 Some(key) => (Response::with_key(hex::encode(key)), false),
                 None => (Response::err("not_found"), false),
             }
         }
-        Request::StoreKey { workspace_id, key, .. } => {
+        Request::StoreKey { workspace_id, session_id, key, .. } => {
             match hex::decode(&key).ok().and_then(|b| b.try_into().ok()) {
                 Some(key_bytes) => {
-                    keys.lock().unwrap().insert(workspace_id, key_bytes);
+                    keys.lock().unwrap().insert((workspace_id, session_id), key_bytes);
                     (Response::ok(), false)
                 }
                 None => (Response::err("invalid_key"), false),

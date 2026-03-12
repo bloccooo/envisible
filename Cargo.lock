@@ -882,6 +882,7 @@ dependencies = [
  "dialoguer",
  "envilib",
  "hex",
+ "libc",
  "rand 0.8.5",
  "ratatui",
  "serde",
