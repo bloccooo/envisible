@@ -1,5 +1,4 @@
 pub mod config;
-pub mod keychain;
 pub mod members;
 pub mod crypto;
 pub mod envi_file;
