@@ -22,3 +22,4 @@ opendal = { version = "0.55", features = ["services-s3", "services-fs", "service
 futures = "0.3"
 uuid = { version = "1", features = ["v7", "serde"] }
 directories = "6"
+keyring = { version = "3", features = ["apple-native", "windows-native", "linux-native"] }

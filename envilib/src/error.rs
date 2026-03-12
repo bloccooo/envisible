@@ -47,6 +47,9 @@ pub enum Error {
     #[error("secret not found: {0}")]
     SecretNotFound(String),
 
+    #[error("keychain error: {0}")]
+    Keychain(String),
+
     #[error("{0}")]
     Other(String),
 }

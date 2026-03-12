@@ -1,4 +1,5 @@
 pub mod config;
+pub mod keychain;
 pub mod crypto;
 pub mod envi_file;
 pub mod error;
