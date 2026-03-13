@@ -4,7 +4,10 @@ use console::{style, Term};
 use dialoguer::{Input, Password, Select};
 use envilib::{
     config::{read_config, write_config, EnviConfig, WorkspaceConfig},
-    crypto::{compute_key_mac, derive_private_key, derive_signing_key, generate_dek, get_public_key, wrap_dek},
+    crypto::{
+        compute_key_mac, derive_private_key, derive_signing_key, generate_dek, get_public_key,
+        wrap_dek,
+    },
     error::Result,
     invite::parse_invite,
     storage::StorageConfig,
@@ -56,11 +59,15 @@ pub async fn run(invite_link_arg: Option<String>) -> Result<()> {
 
     // First-time setup: collect member name
     if config.is_none() {
-        println!("  {} {}", style("→").cyan(), style("First time? Let's create your profile.").bold());
+        println!(
+            "  {} {}",
+            style("→").cyan(),
+            style("Choose an account name.").bold()
+        );
+        println!("  {}", style("A label to identify this device.").dim());
         println!();
-
         let member_name: String = Input::new()
-            .with_prompt(format!("  {}", style("Your name").bold()))
+            .with_prompt(format!("  {}", style("Account name").bold()))
             .interact_text()
             .map_err(|e| envilib::error::Error::Other(e.to_string()))?;
 
@@ -77,7 +84,11 @@ pub async fn run(invite_link_arg: Option<String>) -> Result<()> {
 
     let mut config = config.unwrap();
 
-    println!("  {} {}", style("→").cyan(), style("Set a passphrase to protect your keys.").bold());
+    println!(
+        "  {} {}",
+        style("→").cyan(),
+        style("Set a passphrase to protect your keys.").bold()
+    );
     println!("  {}", style("This never leaves your device.").dim());
     println!();
 
@@ -88,7 +99,11 @@ pub async fn run(invite_link_arg: Option<String>) -> Result<()> {
     let action = if invite_link_arg.is_some() {
         1 // import
     } else {
-        println!("  {} {}", style("→").cyan(), style("What would you like to do?").bold());
+        println!(
+            "  {} {}",
+            style("→").cyan(),
+            style("What would you like to do?").bold()
+        );
         println!();
         Select::new()
             .with_prompt(format!("  {}", style("Action").bold()))
@@ -108,7 +123,11 @@ pub async fn run(invite_link_arg: Option<String>) -> Result<()> {
         let invite_link = if let Some(link) = invite_link_arg {
             link
         } else {
-            println!("  {} {}", style("→").cyan(), style("Paste your invite link below.").bold());
+            println!(
+                "  {} {}",
+                style("→").cyan(),
+                style("Paste your invite link below.").bold()
+            );
             println!();
             Input::new()
                 .with_prompt(format!("  {}", style("Invite link").bold()))
@@ -118,12 +137,16 @@ pub async fn run(invite_link_arg: Option<String>) -> Result<()> {
 
         let payload = parse_invite(&invite_link)?;
 
-        let pb = spinner(&format!("Connecting to workspace '{}'…", payload.workspace.name));
+        let pb = spinner(&format!(
+            "Connecting to workspace '{}'…",
+            payload.workspace.name
+        ));
         let store = Store::new(&payload.workspace.id, &config.member_id, &payload.storage)?;
         let mut doc = store.pull().await?;
         done(pb, "Connected");
 
-        let private_key = derive_private_key(&passphrase, &payload.workspace.id, &config.member_id)?;
+        let private_key =
+            derive_private_key(&passphrase, &payload.workspace.id, &config.member_id)?;
         let public_key = get_public_key(&private_key);
         let signing_key = derive_signing_key(&private_key);
         let signing_public_key = B64.encode(signing_key.verifying_key().to_bytes());
@@ -144,7 +167,7 @@ pub async fn run(invite_link_arg: Option<String>) -> Result<()> {
                 email: config.member_name.clone(),
                 public_key: B64.encode(public_key),
                 signing_key: signing_public_key,
-                key_mac: String::new(), // set by granter when wrapping DEK
+                key_mac: String::new(),     // set by granter when wrapping DEK
                 wrapped_dek: String::new(), // Pending — existing member must grant access
             },
         );
@@ -166,7 +189,11 @@ pub async fn run(invite_link_arg: Option<String>) -> Result<()> {
         );
     } else {
         // Create new workspace
-        println!("  {} {}", style("→").cyan(), style("Name your workspace.").bold());
+        println!(
+            "  {} {}",
+            style("→").cyan(),
+            style("Name your workspace.").bold()
+        );
         println!();
 
         let workspace_name: String = Input::new()
@@ -175,7 +202,11 @@ pub async fn run(invite_link_arg: Option<String>) -> Result<()> {
             .map_err(|e| envilib::error::Error::Other(e.to_string()))?;
 
         println!();
-        println!("  {} {}", style("→").cyan(), style("Choose where to store encrypted data.").bold());
+        println!(
+            "  {} {}",
+            style("→").cyan(),
+            style("Choose where to store encrypted data.").bold()
+        );
         println!();
 
         let storage_config = collect_storage_config()?;
@@ -201,7 +232,12 @@ pub async fn run(invite_link_arg: Option<String>) -> Result<()> {
         let dek = generate_dek();
         let wrapped_dek = wrap_dek(&dek, &public_key)?;
         let public_key_b64 = B64.encode(public_key);
-        let key_mac = compute_key_mac(&dek, &config.member_id, &public_key_b64, &signing_public_key);
+        let key_mac = compute_key_mac(
+            &dek,
+            &config.member_id,
+            &public_key_b64,
+            &signing_public_key,
+        );
 
         let mut state: EnviDocument = hydrate(&doc)?;
         state.id = workspace_id;
@@ -269,7 +305,11 @@ fn collect_storage_config() -> Result<StorageConfig> {
             let bucket = prompt("Bucket name")?;
             let region = prompt_default("Region", "us-east-1")?;
             let endpoint_str = prompt_optional("Endpoint URL (blank for AWS)")?;
-            let endpoint = if endpoint_str.is_empty() { None } else { Some(endpoint_str) };
+            let endpoint = if endpoint_str.is_empty() {
+                None
+            } else {
+                Some(endpoint_str)
+            };
             let access_key_id = prompt("Access Key ID")?;
             let secret_access_key = prompt_password("Secret Access Key")?;
             Ok(StorageConfig::S3(envilib::storage::S3Config {
