@@ -41,18 +41,20 @@ pub async fn run(project_arg: Option<String>, dry_run: bool, cmd: Vec<String>) -
 
     let store = Store::new(&workspace.id, &config.member_id, &workspace.storage)?;
     let doc = store.pull().await?;
-    let private_key = if let Some(agent) = crate::agent::AgentClient::connect_or_start() {
+    let agent = crate::agent::AgentClient::connect_or_start();
+    let private_key = if let Some(ref agent) = agent {
         if let Some(key) = agent.get_key(&workspace.id) {
             key
         } else {
-            let key = derive_private_key(&prompt_passphrase()?, &workspace.id, &config.member_id)?;
-            agent.store_key(&workspace.id, &key);
-            key
+            derive_private_key(&prompt_passphrase()?, &workspace.id, &config.member_id)?
         }
     } else {
         derive_private_key(&prompt_passphrase()?, &workspace.id, &config.member_id)?
     };
     let session = unlock(&doc, &private_key)?;
+    if let Some(ref agent) = agent {
+        agent.store_key(&workspace.id, &private_key);
+    }
 
     let all_secrets = list_secrets(&doc, &session.dek)?;
     let state: EnviDocument = hydrate(&doc)?;

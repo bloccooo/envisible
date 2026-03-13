@@ -269,7 +269,7 @@ struct SigMember<'a> {
 struct SigProject<'a> {
     id: &'a str,
     name: &'a str,
-    secret_ids: &'a [String],
+    secret_ids: Vec<&'a str>,
 }
 
 #[derive(Serialize)]
@@ -293,10 +293,13 @@ struct SigDocument<'a> {
 
 /// Produce a deterministic JSON representation of `state` suitable for signing.
 /// The `document_signature` field is intentionally excluded to avoid circularity.
+/// Pending members (empty `wrapped_dek`) are also excluded so that a new member
+/// adding themselves does not invalidate the existing canonical content.
 pub fn canonical_document_bytes(state: &EnviDocument) -> Vec<u8> {
     let members = state
         .members
         .iter()
+        .filter(|(_, m)| !m.wrapped_dek.is_empty())
         .map(|(id, m)| {
             (
                 id.as_str(),
@@ -321,7 +324,11 @@ pub fn canonical_document_bytes(state: &EnviDocument) -> Vec<u8> {
                 SigProject {
                     id: &p.id,
                     name: &p.name,
-                    secret_ids: &p.secret_ids,
+                    secret_ids: {
+                        let mut ids: Vec<&str> = p.secret_ids.iter().map(String::as_str).collect();
+                        ids.sort_unstable();
+                        ids
+                    },
                 },
             )
         })

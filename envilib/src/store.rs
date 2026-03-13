@@ -96,8 +96,7 @@ impl Store {
 }
 
 /// Load each file, verify its document signature, and merge the valid ones.
-/// Files with an empty signature are accepted (unsigned = old client or initial state).
-/// Files with an invalid signature are skipped with a warning.
+/// Files without a signature or with an invalid signature are skipped with a warning.
 fn load_and_verify_files(files: Vec<Vec<u8>>) -> Option<AutoCommit> {
     if files.is_empty() {
         return None;
@@ -110,7 +109,8 @@ fn load_and_verify_files(files: Vec<Vec<u8>>) -> Option<AutoCommit> {
             let state: EnviDocument = hydrate(&doc).ok()?;
 
             if state.document_signature.is_empty() {
-                return Some(doc); // unsigned — accept
+                eprintln!("warning: skipping unsigned member file");
+                return None;
             }
 
             // Parse "member_id:base64_sig" and look up the signer's key

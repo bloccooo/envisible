@@ -1,16 +1,14 @@
 # Envisible [envi]
 
-A team secret manager built for the agentic era. Secrets are stored encrypted in a storage backend of your choice (S3, R2, WebDAV, or local) and synced across team members using a [CRDT](https://automerge.org). No central server required.
+A serverless secret manager for teams. Secrets are stored encrypted in a storage backend of your choice (S3, R2, WebDAV, or local) and synced across team members using a [CRDT](https://automerge.org) — no central server, no shared master password, no trust in the storage provider.
 
-Designed to limit secret exposure when working alongside AI agents: credentials are scoped per terminal session, injected only into explicitly declared processes, and never accessible to tools running in other terminals — protecting against both prompt injection attacks and curious agents that might read or exfiltrate secrets from the environment.
+Also designed for the agentic era: credentials are scoped per terminal session, injected only into explicitly declared processes, and never accessible to tools running in other terminals — protecting against prompt injection attacks and curious agents.
 
 ## Encryption
 
-Secret values are encrypted with AES-256-GCM using a shared workspace Data Encryption Key (DEK). That key is wrapped individually for each member via X25519 + ECIES. Each member's X25519 private key is derived from their passphrase, workspace ID, and a randomly-generated member ID using Argon2id — binding the key material to that specific member in that specific workspace. The passphrase never leaves the device.
+Secrets are encrypted with AES-256-GCM using a shared workspace key (DEK). Each member holds their own copy of the DEK, wrapped with a personal X25519 key pair derived from their passphrase, workspace ID, and a random member ID via Argon2id. The passphrase never leaves the device.
 
-Each member maintains their own Automerge document. Before persisting, the document is signed with an Ed25519 key derived from the same Argon2id output (via HKDF). When pulling, peers verify each document's signature before merging, rejecting any file that has been tampered with at the storage layer.
-
-Member public and signing keys are authenticated with a per-member HMAC-SHA256 keyed by the DEK, preventing a storage-level attacker from substituting a member's keys without being detected by any DEK holder.
+Each member maintains their own Automerge document, signed with an Ed25519 key before upload. Peers reject unsigned or tampered files before merging. Member keys are authenticated with an HMAC-SHA256 keyed by the DEK, so any DEK holder can detect if a member's keys were replaced at the storage layer.
 
 ## Install
 
@@ -107,7 +105,7 @@ The current implementation uses sound cryptographic primitives (AES-256-GCM, X25
 
 - ~~**Remove passphrase persistence**~~ — done. The passphrase is never written to disk; the derived key is held only in RAM by a short-lived background agent and cleared on `envi logout`.
 - ~~**Password reuse across members**~~ — fixed. Private keys are now derived from `(passphrase, workspace_id, member_id)` where `member_id` is a random UUID generated at setup. Key material is bound to a specific member identity, so knowing another member's passphrase is not sufficient to derive their key.
-- ~~**Authenticated CRDT documents**~~ — done. Each member's Automerge document is signed with an Ed25519 key before being pushed to storage. Peers verify signatures before merging, rejecting tampered or forged files. Member public and signing keys are protected by a per-member HMAC-SHA256 keyed by the shared DEK, so key substitution is detectable by any DEK holder.
+- ~~**Authenticated CRDT documents**~~ — done. Each member's Automerge document is signed with an Ed25519 key before being pushed to storage. All files must be signed — unsigned files are rejected. Pending members are excluded from the canonical bytes so a new member registering their public key does not invalidate the existing signature. Member public and signing keys are protected by a per-member HMAC-SHA256 keyed by the shared DEK, so key substitution is detectable by any DEK holder.
 - **Genesis trust anchor** — the first time a member pulls a workspace, they have no prior state to verify signing keys against (TOFU). A future version will embed a signing key fingerprint in the invite link so the first pull can be verified against the invite.
 - **Signed invite links** — invite links will be signed by the issuing member's private key. Peers will verify the signature on join, ensuring the invite was issued by a legitimate workspace member and preventing forged or tampered links.
 - **Member identity verification** — new members self-register by writing their own public key into the shared document. A future version will require the inviting member to countersign the joining member's public key, preventing a malicious actor from substituting their own key during the join flow.
