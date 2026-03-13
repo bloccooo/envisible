@@ -3,7 +3,7 @@ members = ["envilib", "cli"]
 resolver = "2"
 
 [workspace.package]
-version = "0.0.20"
+version = "0.0.21"
 
 [workspace.dependencies]
 tokio = { version = "1", features = ["rt-multi-thread", "macros", "time", "fs"] }
