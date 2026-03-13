@@ -151,10 +151,10 @@ fn init_doc(workspace_id: &str) -> AutoCommit {
     let mut doc = AutoCommit::new();
     let state = EnviDocument {
         id: workspace_id.to_string(),
-        name: "my-workspace".to_string(),
+        name: String::new(),
         doc_version: 0,
         members: Default::default(),
-        projects: Default::default(),
+        namespaces: Default::default(),
         secrets: Default::default(),
         document_signature: String::new(),
     };

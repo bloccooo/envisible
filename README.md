@@ -33,7 +33,7 @@ envi setup envi-invite:<token> # join workspace
 
 ### `envi`
 
-Open the terminal UI to manage secrets, projects, and members.
+Open the terminal UI to manage secrets, namespaces, and members.
 
 ```sh
 envi
@@ -46,7 +46,7 @@ envi
 | `n`   | New item                              |
 | `e`   | Edit selected                         |
 | `d`   | Delete selected                       |
-| `s`   | Manage project secrets (project pane) |
+| `s`   | Manage namespace secrets (namespaces pane) |
 | `g`   | Grant access to member (members pane) |
 | `i`   | Generate invite link (members pane)   |
 | `v`   | Toggle value visibility               |
@@ -59,14 +59,14 @@ Inject secrets as environment variables into a command.
 
 ```sh
 envi exec -- node server.js
-envi exec --project myapp -- node server.js
-envi exec --project myapp --dry-run
+envi exec --namespace myapp -- node server.js
+envi exec --namespace myapp --dry-run
 ```
 
-A `.envi` file in the project root can specify the default project:
+A `.envi` file in the project root can specify the default namespace:
 
 ```
-project = "myapp"
+namespace = "myapp"
 ```
 
 ### `envi sync`

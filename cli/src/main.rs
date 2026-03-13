@@ -23,9 +23,9 @@ enum Command {
     Ui,
     /// Inject secrets into a subprocess
     Exec {
-        /// Override project (default: from .envi file)
+        /// Override namespace (default: from .envi file)
         #[arg(short, long)]
-        project: Option<String>,
+        namespace: Option<String>,
         /// Print env vars that would be injected without running
         #[arg(long)]
         dry_run: bool,
@@ -57,8 +57,8 @@ async fn main() {
     let result = match cli.command.unwrap_or(Command::Ui) {
         Command::Setup { invite } => commands::setup::run(invite).await,
         Command::Ui => commands::ui::run().await,
-        Command::Exec { project, dry_run, cmd } => {
-            commands::run::run(project, dry_run, cmd).await
+        Command::Exec { namespace, dry_run, cmd } => {
+            commands::run::run(namespace, dry_run, cmd).await
         }
         Command::Sync => commands::sync::run().await,
         Command::Logout => agent::run(false, true).await,

@@ -881,7 +881,7 @@ checksum = "34aa73646ffb006b8f5147f3dc182bd4bcb190227ce861fc4a4844bf8e3cb2c0"
 
 [[package]]
 name = "envi"
-version = "0.0.23"
+version = "0.0.24"
 dependencies = [
  "arboard",
  "automerge",
@@ -891,9 +891,9 @@ dependencies = [
  "console",
  "crossterm",
  "dialoguer",
- "envilib",
  "hex",
  "indicatif",
+ "lib",
  "libc",
  "rand 0.8.5",
  "ratatui",
@@ -903,31 +903,6 @@ dependencies = [
  "thiserror 1.0.69",
  "tokio",
  "uuid",
-]
-
-[[package]]
-name = "envilib"
-version = "0.0.23"
-dependencies = [
- "aes-gcm",
- "argon2",
- "automerge",
- "autosurgeon",
- "base64",
- "directories",
- "ed25519-dalek",
- "futures",
- "hkdf",
- "hmac",
- "opendal",
- "rand 0.8.5",
- "serde",
- "serde_json",
- "sha2 0.10.9",
- "thiserror 1.0.69",
- "tokio",
- "uuid",
- "x25519-dalek",
 ]
 
 [[package]]
@@ -1773,6 +1748,31 @@ name = "leb128fmt"
 version = "0.1.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "09edd9e8b54e49e587e4f6295a7d29c3ea94d469cb40ab8ca70b288248a81db2"
+
+[[package]]
+name = "lib"
+version = "0.0.24"
+dependencies = [
+ "aes-gcm",
+ "argon2",
+ "automerge",
+ "autosurgeon",
+ "base64",
+ "directories",
+ "ed25519-dalek",
+ "futures",
+ "hkdf",
+ "hmac",
+ "opendal",
+ "rand 0.8.5",
+ "serde",
+ "serde_json",
+ "sha2 0.10.9",
+ "thiserror 1.0.69",
+ "tokio",
+ "uuid",
+ "x25519-dalek",
+]
 
 [[package]]
 name = "libc"

@@ -1,4 +1,4 @@
-use envilib::{error::{Error, Result}, store::cache_dir};
+use lib::{error::{Error, Result}, store::cache_dir};
 use rand::RngCore;
 use serde::{Deserialize, Serialize};
 use std::{

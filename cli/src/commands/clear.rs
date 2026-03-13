@@ -1,4 +1,4 @@
-use envilib::{config::delete_config, error::Result, store::cache_dir};
+use lib::{config::delete_config, error::Result, store::cache_dir};
 
 pub async fn run() -> Result<()> {
     // Kill the agent if running
@@ -11,7 +11,7 @@ pub async fn run() -> Result<()> {
     let cache = cache_dir();
     if cache.exists() {
         std::fs::remove_dir_all(&cache)
-            .map_err(|e| envilib::error::Error::Other(format!("failed to remove cache: {e}")))?;
+            .map_err(|e| lib::error::Error::Other(format!("failed to remove cache: {e}")))?;
         println!("cache cleared");
     }
 

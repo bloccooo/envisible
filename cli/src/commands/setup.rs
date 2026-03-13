@@ -2,7 +2,7 @@ use autosurgeon::{hydrate, reconcile};
 use base64::{engine::general_purpose::STANDARD as B64, Engine};
 use console::{style, Term};
 use dialoguer::{Input, Password, Select};
-use envilib::{
+use lib::{
     config::{read_config, write_config, EnviConfig, WorkspaceConfig},
     crypto::{
         compute_key_mac, derive_private_key, derive_signing_key, generate_dek, get_public_key,
@@ -69,7 +69,7 @@ pub async fn run(invite_link_arg: Option<String>) -> Result<()> {
         let member_name: String = Input::new()
             .with_prompt(format!("  {}", style("Account name").bold()))
             .interact_text()
-            .map_err(|e| envilib::error::Error::Other(e.to_string()))?;
+            .map_err(|e| lib::error::Error::Other(e.to_string()))?;
 
         let cfg = EnviConfig {
             version: "v1".to_string(),
@@ -113,7 +113,7 @@ pub async fn run(invite_link_arg: Option<String>) -> Result<()> {
             ])
             .default(0)
             .interact()
-            .map_err(|e| envilib::error::Error::Other(e.to_string()))?
+            .map_err(|e| lib::error::Error::Other(e.to_string()))?
     };
 
     println!();
@@ -132,7 +132,7 @@ pub async fn run(invite_link_arg: Option<String>) -> Result<()> {
             Input::new()
                 .with_prompt(format!("  {}", style("Invite link").bold()))
                 .interact_text()
-                .map_err(|e| envilib::error::Error::Other(e.to_string()))?
+                .map_err(|e| lib::error::Error::Other(e.to_string()))?
         };
 
         let payload = parse_invite(&invite_link)?;
@@ -199,7 +199,7 @@ pub async fn run(invite_link_arg: Option<String>) -> Result<()> {
         let workspace_name: String = Input::new()
             .with_prompt(format!("  {}", style("Workspace name").bold()))
             .interact_text()
-            .map_err(|e| envilib::error::Error::Other(e.to_string()))?;
+            .map_err(|e| lib::error::Error::Other(e.to_string()))?;
 
         println!();
         println!(
@@ -288,7 +288,7 @@ fn collect_storage_config() -> Result<StorageConfig> {
         .items(&backends)
         .default(0)
         .interact()
-        .map_err(|e| envilib::error::Error::Other(e.to_string()))?;
+        .map_err(|e| lib::error::Error::Other(e.to_string()))?;
 
     println!();
 
@@ -298,8 +298,8 @@ fn collect_storage_config() -> Result<StorageConfig> {
                 .with_prompt(format!("  {}", style("Storage path").bold()))
                 .default("./envi-storage".to_string())
                 .interact_text()
-                .map_err(|e| envilib::error::Error::Other(e.to_string()))?;
-            Ok(StorageConfig::Fs(envilib::storage::FsConfig { root }))
+                .map_err(|e| lib::error::Error::Other(e.to_string()))?;
+            Ok(StorageConfig::Fs(lib::storage::FsConfig { root }))
         }
         1 => {
             let bucket = prompt("Bucket name")?;
@@ -312,7 +312,7 @@ fn collect_storage_config() -> Result<StorageConfig> {
             };
             let access_key_id = prompt("Access Key ID")?;
             let secret_access_key = prompt_password("Secret Access Key")?;
-            Ok(StorageConfig::S3(envilib::storage::S3Config {
+            Ok(StorageConfig::S3(lib::storage::S3Config {
                 bucket,
                 region,
                 endpoint,
@@ -325,7 +325,7 @@ fn collect_storage_config() -> Result<StorageConfig> {
             let bucket = prompt("Bucket name")?;
             let access_key_id = prompt("R2 Access Key ID")?;
             let secret_access_key = prompt_password("R2 Secret Access Key")?;
-            Ok(StorageConfig::R2(envilib::storage::R2Config {
+            Ok(StorageConfig::R2(lib::storage::R2Config {
                 account_id,
                 bucket,
                 access_key_id,
@@ -336,7 +336,7 @@ fn collect_storage_config() -> Result<StorageConfig> {
             let endpoint = prompt("WebDAV endpoint URL")?;
             let username = prompt_optional("Username (blank if none)")?;
             let password = prompt_optional_password("Password (blank if none)")?;
-            Ok(StorageConfig::Webdav(envilib::storage::WebdavConfig {
+            Ok(StorageConfig::Webdav(lib::storage::WebdavConfig {
                 endpoint,
                 username,
                 password,
@@ -349,7 +349,7 @@ fn prompt(msg: &str) -> Result<String> {
     Input::new()
         .with_prompt(format!("  {}", style(msg).bold()))
         .interact_text()
-        .map_err(|e| envilib::error::Error::Other(e.to_string()))
+        .map_err(|e| lib::error::Error::Other(e.to_string()))
 }
 
 fn prompt_default(msg: &str, default: &str) -> Result<String> {
@@ -357,7 +357,7 @@ fn prompt_default(msg: &str, default: &str) -> Result<String> {
         .with_prompt(format!("  {}", style(msg).bold()))
         .default(default.to_string())
         .interact_text()
-        .map_err(|e| envilib::error::Error::Other(e.to_string()))
+        .map_err(|e| lib::error::Error::Other(e.to_string()))
 }
 
 fn prompt_optional(msg: &str) -> Result<String> {
@@ -365,14 +365,14 @@ fn prompt_optional(msg: &str) -> Result<String> {
         .with_prompt(format!("  {}", style(msg).bold()))
         .allow_empty(true)
         .interact_text()
-        .map_err(|e| envilib::error::Error::Other(e.to_string()))
+        .map_err(|e| lib::error::Error::Other(e.to_string()))
 }
 
 fn prompt_password(msg: &str) -> Result<String> {
     Password::new()
         .with_prompt(format!("  {}", style(msg).bold()))
         .interact()
-        .map_err(|e| envilib::error::Error::Other(e.to_string()))
+        .map_err(|e| lib::error::Error::Other(e.to_string()))
 }
 
 fn prompt_optional_password(msg: &str) -> Result<String> {
@@ -380,5 +380,5 @@ fn prompt_optional_password(msg: &str) -> Result<String> {
         .with_prompt(format!("  {}", style(msg).bold()))
         .allow_empty_password(true)
         .interact()
-        .map_err(|e| envilib::error::Error::Other(e.to_string()))
+        .map_err(|e| lib::error::Error::Other(e.to_string()))
 }

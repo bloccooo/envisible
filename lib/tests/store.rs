@@ -2,7 +2,7 @@ mod common;
 
 use autosurgeon::reconcile;
 use base64::{engine::general_purpose::STANDARD as B64, Engine};
-use envilib::{
+use lib::{
     crypto::{derive_private_key, get_public_key, wrap_dek},
     store::unlock,
     types::{EnviDocument, Member},
@@ -28,7 +28,7 @@ fn unlock_with_wrong_passphrase_returns_not_a_member() {
     let ws = common::setup();
     let wrong_key = derive_private_key("wrong-passphrase", common::WORKSPACE_ID, common::MEMBER_ID).unwrap();
     let err = unlock(&ws.doc, &wrong_key).err().expect("should return an error");
-    assert!(matches!(err, envilib::error::Error::NotAMember));
+    assert!(matches!(err, lib::error::Error::NotAMember));
 }
 
 #[test]
@@ -36,7 +36,7 @@ fn unlock_with_wrong_member_id_returns_not_a_member() {
     let ws = common::setup();
     let wrong_key = derive_private_key(common::PASSPHRASE, common::WORKSPACE_ID, "other-member-id").unwrap();
     let err = unlock(&ws.doc, &wrong_key).err().expect("should return an error");
-    assert!(matches!(err, envilib::error::Error::NotAMember));
+    assert!(matches!(err, lib::error::Error::NotAMember));
 }
 
 #[test]
@@ -65,7 +65,7 @@ fn unlock_pending_member_returns_access_pending() {
         name: "ws".to_string(),
         doc_version: 1,
         members,
-        projects: HashMap::new(),
+        namespaces: HashMap::new(),
         secrets: HashMap::new(),
         document_signature: String::new(),
     };
@@ -73,13 +73,13 @@ fn unlock_pending_member_returns_access_pending() {
     reconcile(&mut doc, &state).unwrap();
 
     let err = unlock(&doc, &private_key).err().expect("should return an error");
-    assert!(matches!(err, envilib::error::Error::AccessPending));
+    assert!(matches!(err, lib::error::Error::AccessPending));
 }
 
 #[test]
 fn unlock_detects_tampered_key_mac() {
     use automerge::AutoCommit;
-    use envilib::crypto::{compute_key_mac, derive_signing_key, generate_dek};
+    use lib::crypto::{compute_key_mac, derive_signing_key, generate_dek};
 
     // Set up a member with a valid key MAC ...
     let private_key = derive_private_key("passphrase", "workspace-id", "member-one-id").unwrap();
@@ -130,7 +130,7 @@ fn unlock_detects_tampered_key_mac() {
         name: "Workspace".to_string(),
         doc_version: 1,
         members,
-        projects: HashMap::new(),
+        namespaces: HashMap::new(),
         secrets: HashMap::new(),
         document_signature: String::new(),
     };
@@ -138,5 +138,5 @@ fn unlock_detects_tampered_key_mac() {
     reconcile(&mut doc, &state).unwrap();
 
     let err = unlock(&doc, &private_key).err().expect("should return an error");
-    assert!(matches!(err, envilib::error::Error::InvalidKeyMac(_)));
+    assert!(matches!(err, lib::error::Error::InvalidKeyMac(_)));
 }

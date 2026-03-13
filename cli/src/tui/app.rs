@@ -3,14 +3,14 @@ use autosurgeon::{hydrate, reconcile};
 use base64::engine::general_purpose::STANDARD as B64;
 use base64::Engine;
 use crossterm::event::{KeyCode, KeyEvent};
-use envilib::{
+use lib::{
     crypto::{compute_key_mac, wrap_dek},
     error::Result,
     members::{remove_member, rotate_dek},
-    projects::{add_project, remove_project, set_project_secrets, update_project},
+    namespaces::{add_namespace, remove_namespace, set_namespace_secrets, update_namespace},
     secrets::{add_secret, list_secrets, remove_secret, update_secret, PlaintextSecretFields},
     store::{Session, Store},
-    types::{EnviDocument, Member, PlaintextSecret, Project},
+    types::{EnviDocument, Member, Namespace, PlaintextSecret},
 };
 use std::sync::Arc;
 
@@ -20,10 +20,10 @@ use std::sync::Arc;
 pub enum Mode {
     List,
     NewSecret,
-    NewProject,
+    NewNamespace,
     EditSecret,
-    EditProject,
-    ProjectSecrets,
+    EditNamespace,
+    NamespaceSecrets,
     Invite,
 }
 
@@ -31,7 +31,7 @@ pub enum Mode {
 
 #[derive(Debug, Clone, PartialEq)]
 pub enum Focus {
-    Projects,
+    Namespaces,
     Secrets,
     Members,
 }
@@ -63,7 +63,7 @@ pub const SECRET_FIELDS: &[FormField] = &[
     },
 ];
 
-pub const PROJECT_FIELDS: &[FormField] = &[FormField {
+pub const NAMESPACE_FIELDS: &[FormField] = &[FormField {
     label: "Name",
     secret: false,
 }];
@@ -80,7 +80,7 @@ pub struct App {
     pub focus: Focus,
 
     // List indices
-    pub proj_idx: usize,
+    pub ns_idx: usize,
     pub sec_idx: usize,
     pub member_idx: usize,
 
@@ -88,7 +88,7 @@ pub struct App {
     pub syncing: bool,
 
     // Derived data (refreshed after every doc change)
-    pub projects: Vec<Project>,
+    pub namespaces: Vec<Namespace>,
     pub secrets: Vec<PlaintextSecret>,
     pub members: Vec<Member>,
 
@@ -130,14 +130,14 @@ impl App {
             session,
             invite_link,
             mode: Mode::List,
-            focus: Focus::Projects,
-            proj_idx: 0,
+            focus: Focus::Namespaces,
+            ns_idx: 0,
             sec_idx: 0,
             member_idx: 0,
             show_values: false,
             syncing: false,
             clipboard_ok: false,
-            projects: vec![],
+            namespaces: vec![],
             secrets: vec![],
             members: vec![],
             field_idx: 0,
@@ -160,13 +160,13 @@ impl App {
     /// Refresh derived state from the automerge document.
     pub fn refresh(&mut self) -> Result<()> {
         let state: EnviDocument = hydrate(&self.doc)?;
-        self.projects = state.projects.into_values().collect();
+        self.namespaces = state.namespaces.into_values().collect();
         self.secrets = list_secrets(&self.doc, &self.session.dek)?;
         self.members = state.members.into_values().collect();
 
         // Clamp indices
-        if !self.projects.is_empty() {
-            self.proj_idx = self.proj_idx.min(self.projects.len() - 1);
+        if !self.namespaces.is_empty() {
+            self.ns_idx = self.ns_idx.min(self.namespaces.len() - 1);
         }
         if !self.secrets.is_empty() {
             self.sec_idx = self.sec_idx.min(self.secrets.len() - 1);
@@ -259,9 +259,9 @@ impl App {
                 self.refresh()?;
                 self.schedule_persist();
             }
-            Mode::NewProject => {
+            Mode::NewNamespace => {
                 let [name, ..] = all_values_array(&all_values);
-                add_project(&mut self.doc, &name)?;
+                add_namespace(&mut self.doc, &name)?;
                 self.refresh()?;
                 self.schedule_persist();
             }
@@ -283,10 +283,10 @@ impl App {
                     self.schedule_persist();
                 }
             }
-            Mode::EditProject => {
+            Mode::EditNamespace => {
                 if let Some(id) = self.editing_id.clone() {
                     let [name, ..] = all_values_array(&all_values);
-                    update_project(&mut self.doc, &id, &name)?;
+                    update_namespace(&mut self.doc, &id, &name)?;
                     self.refresh()?;
                     self.schedule_persist();
                 }
@@ -324,8 +324,8 @@ impl App {
                 }
                 return Ok(false);
             }
-            Mode::ProjectSecrets => {
-                return self.handle_project_secrets(key);
+            Mode::NamespaceSecrets => {
+                return self.handle_namespace_secrets(key);
             }
             Mode::List => {}
             _ => {
@@ -338,9 +338,9 @@ impl App {
             KeyCode::Char('q') => return Ok(true),
             KeyCode::Tab => {
                 self.focus = match &self.focus {
-                    Focus::Projects => Focus::Secrets,
+                    Focus::Namespaces => Focus::Secrets,
                     Focus::Secrets => Focus::Members,
-                    Focus::Members => Focus::Projects,
+                    Focus::Members => Focus::Namespaces,
                 };
             }
             KeyCode::Char('v') => {
@@ -348,8 +348,8 @@ impl App {
             }
             KeyCode::Char('n') => {
                 if self.focus != Focus::Members {
-                    let mode = if self.focus == Focus::Projects {
-                        Mode::NewProject
+                    let mode = if self.focus == Focus::Namespaces {
+                        Mode::NewNamespace
                     } else {
                         Mode::NewSecret
                     };
@@ -357,9 +357,9 @@ impl App {
                 }
             }
             KeyCode::Up => match &self.focus {
-                Focus::Projects => {
-                    if self.proj_idx > 0 {
-                        self.proj_idx -= 1;
+                Focus::Namespaces => {
+                    if self.ns_idx > 0 {
+                        self.ns_idx -= 1;
                     }
                 }
                 Focus::Secrets => {
@@ -374,9 +374,9 @@ impl App {
                 }
             },
             KeyCode::Down => match &self.focus {
-                Focus::Projects => {
-                    if self.proj_idx + 1 < self.projects.len() {
-                        self.proj_idx += 1;
+                Focus::Namespaces => {
+                    if self.ns_idx + 1 < self.namespaces.len() {
+                        self.ns_idx += 1;
                     }
                 }
                 Focus::Secrets => {
@@ -406,34 +406,34 @@ impl App {
                         );
                     }
                 }
-                Focus::Projects => {
-                    if let Some(proj) = self.projects.get(self.proj_idx) {
-                        let proj = proj.clone();
-                        self.open_edit_form(Mode::EditProject, &proj.id, vec![proj.name.clone()]);
+                Focus::Namespaces => {
+                    if let Some(ns) = self.namespaces.get(self.ns_idx) {
+                        let ns = ns.clone();
+                        self.open_edit_form(Mode::EditNamespace, &ns.id, vec![ns.name.clone()]);
                     }
                 }
                 Focus::Members => {}
             },
             KeyCode::Char('s') => {
-                if self.focus == Focus::Projects {
-                    if let Some(proj) = self.projects.get(self.proj_idx) {
-                        let proj_id = proj.id.clone();
+                if self.focus == Focus::Namespaces {
+                    if let Some(ns) = self.namespaces.get(self.ns_idx) {
+                        let ns_id = ns.id.clone();
                         let selected: std::collections::HashSet<String> =
-                            proj.secret_ids.iter().cloned().collect();
+                            ns.secret_ids.iter().cloned().collect();
                         self.ps_cursor = 0;
                         self.ps_selected_ids = selected;
-                        self.editing_id = Some(proj_id);
-                        self.mode = Mode::ProjectSecrets;
+                        self.editing_id = Some(ns_id);
+                        self.mode = Mode::NamespaceSecrets;
                     }
                 }
             }
             KeyCode::Char('d') => match &self.focus {
-                Focus::Projects => {
-                    if let Some(proj) = self.projects.get(self.proj_idx) {
-                        let id = proj.id.clone();
-                        remove_project(&mut self.doc, &id)?;
-                        if self.proj_idx > 0 {
-                            self.proj_idx -= 1;
+                Focus::Namespaces => {
+                    if let Some(ns) = self.namespaces.get(self.ns_idx) {
+                        let id = ns.id.clone();
+                        remove_namespace(&mut self.doc, &id)?;
+                        if self.ns_idx > 0 {
+                            self.ns_idx -= 1;
                         }
                         self.refresh()?;
                         self.schedule_persist();
@@ -490,7 +490,7 @@ impl App {
         let fields = if self.mode == Mode::NewSecret || self.mode == Mode::EditSecret {
             SECRET_FIELDS
         } else {
-            PROJECT_FIELDS
+            NAMESPACE_FIELDS
         };
 
         match key.code {
@@ -548,7 +548,7 @@ impl App {
         Ok(false)
     }
 
-    fn handle_project_secrets(&mut self, key: KeyEvent) -> Result<bool> {
+    fn handle_namespace_secrets(&mut self, key: KeyEvent) -> Result<bool> {
         match key.code {
             KeyCode::Esc => {
                 self.mode = Mode::List;
@@ -576,7 +576,7 @@ impl App {
             KeyCode::Enter => {
                 if let Some(id) = self.editing_id.clone() {
                     let ids: Vec<String> = self.ps_selected_ids.iter().cloned().collect();
-                    set_project_secrets(&mut self.doc, &id, ids)?;
+                    set_namespace_secrets(&mut self.doc, &id, ids)?;
                     self.refresh()?;
                     self.schedule_persist();
                     self.mode = Mode::List;
@@ -623,10 +623,10 @@ impl App {
                 if let Some(member) = self.members.iter().find(|m| m.id == id) {
                     let pub_key_bytes = B64
                         .decode(&member.public_key)
-                        .map_err(|_| envilib::error::Error::DecryptionFailed)?;
+                        .map_err(|_| lib::error::Error::DecryptionFailed)?;
                     let pub_key: [u8; 32] = pub_key_bytes
                         .try_into()
-                        .map_err(|_| envilib::error::Error::DecryptionFailed)?;
+                        .map_err(|_| lib::error::Error::DecryptionFailed)?;
                     let wrapped = wrap_dek(&self.session.dek, &pub_key)?;
                     let key_mac = compute_key_mac(
                         &self.session.dek,

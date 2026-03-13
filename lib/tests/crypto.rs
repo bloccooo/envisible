@@ -1,7 +1,7 @@
 mod common;
 
 use base64::{engine::general_purpose::STANDARD as B64, Engine};
-use envilib::{
+use lib::{
     crypto::{
         canonical_document_bytes, compute_key_mac, decrypt_field, derive_private_key,
         derive_signing_key, encrypt_field, generate_dek, get_public_key, sign_document,
@@ -160,7 +160,7 @@ fn empty_doc(id: &str) -> EnviDocument {
         name: "ws".to_string(),
         doc_version: 1,
         members: HashMap::new(),
-        projects: HashMap::new(),
+        namespaces: HashMap::new(),
         secrets: HashMap::new(),
         document_signature: String::new(),
     }

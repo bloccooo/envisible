@@ -3,7 +3,7 @@
 use automerge::AutoCommit;
 use autosurgeon::reconcile;
 use base64::{engine::general_purpose::STANDARD as B64, Engine};
-use envilib::{
+use lib::{
     crypto::{compute_key_mac, derive_private_key, derive_signing_key, generate_dek, get_public_key, wrap_dek},
     types::{EnviDocument, Member},
 };
@@ -51,7 +51,7 @@ pub fn setup() -> Workspace {
         name: "Test Workspace".to_string(),
         doc_version: 1,
         members,
-        projects: HashMap::new(),
+        namespaces: HashMap::new(),
         secrets: HashMap::new(),
         document_signature: String::new(),
     };

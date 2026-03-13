@@ -4,7 +4,7 @@ pub mod crypto;
 pub mod envi_file;
 pub mod error;
 pub mod invite;
-pub mod projects;
+pub mod namespaces;
 pub mod secrets;
 pub mod storage;
 pub mod store;

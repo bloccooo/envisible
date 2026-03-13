@@ -3,7 +3,7 @@ mod common;
 use automerge::AutoCommit;
 use autosurgeon::reconcile;
 use base64::{engine::general_purpose::STANDARD as B64, Engine};
-use envilib::{
+use lib::{
     crypto::{
         compute_key_mac, derive_private_key, derive_signing_key, generate_dek, get_public_key,
         wrap_dek,
@@ -50,7 +50,7 @@ fn two_member_workspace() -> (AutoCommit, [u8; 32]) {
         name: "Two Member Workspace".to_string(),
         doc_version: 1,
         members,
-        projects: HashMap::new(),
+        namespaces: HashMap::new(),
         secrets: HashMap::new(),
         document_signature: String::new(),
     };
@@ -123,7 +123,7 @@ fn remove_member_removes_them_from_document() {
     let err = unlock(&doc, &private_key)
         .err()
         .expect("should return an error");
-    assert!(matches!(err, envilib::error::Error::NotAMember));
+    assert!(matches!(err, lib::error::Error::NotAMember));
 }
 
 #[test]

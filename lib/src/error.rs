@@ -47,8 +47,8 @@ pub enum Error {
     #[error("no workspaces configured — run: envi setup")]
     NoWorkspaces,
 
-    #[error("project not found: {0}")]
-    ProjectNotFound(String),
+    #[error("namespace not found: {0}")]
+    NamespaceNotFound(String),
 
     #[error("secret not found: {0}")]
     SecretNotFound(String),

@@ -1,6 +1,6 @@
 use console::style;
 use dialoguer::Password;
-use envilib::error::{Error, Result};
+use lib::error::{Error, Result};
 
 /// Prompt for an existing passphrase (no validation — just reads it).
 pub fn prompt_passphrase() -> Result<String> {

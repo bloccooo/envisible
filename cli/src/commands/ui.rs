@@ -1,4 +1,4 @@
-use envilib::{
+use lib::{
     config::read_config,
     crypto::derive_private_key,
     error::{Error, Result},

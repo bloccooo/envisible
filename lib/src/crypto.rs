@@ -266,7 +266,7 @@ struct SigMember<'a> {
 }
 
 #[derive(Serialize)]
-struct SigProject<'a> {
+struct SigNamespace<'a> {
     id: &'a str,
     name: &'a str,
     secret_ids: Vec<&'a str>,
@@ -287,7 +287,7 @@ struct SigDocument<'a> {
     id: &'a str,
     members: BTreeMap<&'a str, SigMember<'a>>,
     name: &'a str,
-    projects: BTreeMap<&'a str, SigProject<'a>>,
+    namespaces: BTreeMap<&'a str, SigNamespace<'a>>,
     secrets: BTreeMap<&'a str, SigSecret<'a>>,
 }
 
@@ -315,13 +315,13 @@ pub fn canonical_document_bytes(state: &EnviDocument) -> Vec<u8> {
         })
         .collect();
 
-    let projects = state
-        .projects
+    let namespaces = state
+        .namespaces
         .iter()
         .map(|(id, p)| {
             (
                 id.as_str(),
-                SigProject {
+                SigNamespace {
                     id: &p.id,
                     name: &p.name,
                     secret_ids: {
@@ -356,7 +356,7 @@ pub fn canonical_document_bytes(state: &EnviDocument) -> Vec<u8> {
         id: &state.id,
         members,
         name: &state.name,
-        projects,
+        namespaces,
         secrets,
     };
 

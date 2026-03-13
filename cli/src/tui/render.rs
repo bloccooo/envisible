@@ -9,13 +9,13 @@ use ratatui::{
     Frame,
 };
 
-use super::app::{App, Focus, Mode, PROJECT_FIELDS, SECRET_FIELDS};
+use super::app::{App, Focus, Mode, NAMESPACE_FIELDS, SECRET_FIELDS};
 
 pub fn render(f: &mut Frame, app: &App) {
     match &app.mode {
         Mode::Invite => render_invite(f, app),
-        Mode::ProjectSecrets => render_project_secrets(f, app),
-        Mode::NewSecret | Mode::EditSecret | Mode::NewProject | Mode::EditProject => {
+        Mode::NamespaceSecrets => render_namespace_secrets(f, app),
+        Mode::NewSecret | Mode::EditSecret | Mode::NewNamespace | Mode::EditNamespace => {
             render_form(f, app)
         }
         Mode::List => render_list(f, app),
@@ -33,7 +33,7 @@ fn render_list(f: &mut Frame, app: &App) {
         .constraints([Constraint::Min(0), Constraint::Length(1)])
         .split(area);
 
-    // Body: members row on top, then projects | secrets
+    // Body: members row on top, then namespaces | secrets
     let body_chunks = Layout::default()
         .direction(Direction::Vertical)
         .constraints([Constraint::Length(8), Constraint::Min(0)])
@@ -41,13 +41,13 @@ fn render_list(f: &mut Frame, app: &App) {
 
     render_members(f, app, body_chunks[0]);
 
-    // Projects | Secrets split
+    // Namespaces | Secrets split
     let pane_chunks = Layout::default()
         .direction(Direction::Horizontal)
         .constraints([Constraint::Percentage(25), Constraint::Percentage(75)])
         .split(body_chunks[1]);
 
-    render_projects(f, app, pane_chunks[0]);
+    render_namespaces(f, app, pane_chunks[0]);
     render_secrets(f, app, pane_chunks[1]);
 
     render_footer(f, app, main_chunks[1]);
@@ -91,7 +91,7 @@ fn render_footer(f: &mut Frame, app: &App, area: Rect) {
     }
 
     let hint = match &app.focus {
-        Focus::Projects => "[n] New  [e] Edit  [s] Secrets  [d] Delete  [Tab] Switch  [q] Quit",
+        Focus::Namespaces => "[n] New  [e] Edit  [s] Secrets  [d] Delete  [Tab] Switch  [q] Quit",
         Focus::Secrets => {
             if app.show_values {
                 "[n] New  [e] Edit  [d] Delete  [v] Hide values  [Tab] Switch  [q] Quit"
@@ -178,8 +178,8 @@ fn render_members(f: &mut Frame, app: &App, area: Rect) {
     f.render_stateful_widget(List::new(items).block(block), area, &mut state);
 }
 
-fn render_projects(f: &mut Frame, app: &App, area: Rect) {
-    let focused = app.focus == Focus::Projects;
+fn render_namespaces(f: &mut Frame, app: &App, area: Rect) {
+    let focused = app.focus == Focus::Namespaces;
     let border_style = if focused {
         Style::default().fg(Color::Cyan)
     } else {
@@ -187,11 +187,11 @@ fn render_projects(f: &mut Frame, app: &App, area: Rect) {
     };
 
     let items: Vec<ListItem> = app
-        .projects
+        .namespaces
         .iter()
         .enumerate()
         .map(|(i, p)| {
-            let is_selected = i == app.proj_idx && focused;
+            let is_selected = i == app.ns_idx && focused;
             let secret_count = p.secret_ids.len();
             let label = format!("{} ({})", p.name, secret_count);
 
@@ -205,15 +205,15 @@ fn render_projects(f: &mut Frame, app: &App, area: Rect) {
         })
         .collect();
 
-    let scroll = scroll_indicators(app.proj_idx, app.projects.len(), area.height as usize, 2);
+    let scroll = scroll_indicators(app.ns_idx, app.namespaces.len(), area.height as usize, 2);
     let block = Block::default()
-        .title(format!(" Projects ({}) {}", app.projects.len(), scroll))
+        .title(format!(" Namespaces ({}) {}", app.namespaces.len(), scroll))
         .borders(Borders::ALL)
         .border_style(border_style);
 
     let mut state = ListState::default();
-    if focused && !app.projects.is_empty() {
-        state.select(Some(app.proj_idx));
+    if focused && !app.namespaces.is_empty() {
+        state.select(Some(app.ns_idx));
     }
 
     f.render_stateful_widget(List::new(items).block(block), area, &mut state);
@@ -227,7 +227,7 @@ fn render_secrets(f: &mut Frame, app: &App, area: Rect) {
         Style::default().fg(Color::DarkGray)
     };
 
-    let header_cells = ["Name", "Value", "Tags", "Projects"]
+    let header_cells = ["Name", "Value", "Tags", "Namespaces"]
         .iter()
         .map(|h| Cell::from(*h).style(Style::default().add_modifier(Modifier::BOLD)));
     let header = Row::new(header_cells).height(1).bottom_margin(0);
@@ -247,13 +247,13 @@ fn render_secrets(f: &mut Frame, app: &App, area: Rect) {
 
             let tags = s.tags.join(", ");
 
-            // Count how many projects contain this secret
-            let project_count = app
-                .projects
+            // Count how many namespaces contain this secret
+            let ns_count = app
+                .namespaces
                 .iter()
                 .filter(|p| p.secret_ids.contains(&s.id))
                 .count();
-            let proj_display = project_count.to_string();
+            let proj_display = ns_count.to_string();
 
             let style = if is_selected {
                 Style::default().bg(Color::Cyan).fg(Color::Black)
@@ -306,15 +306,15 @@ fn render_form(f: &mut Frame, app: &App) {
     let title = match &app.mode {
         Mode::NewSecret => " New Secret ",
         Mode::EditSecret => " Edit Secret ",
-        Mode::NewProject => " New Project ",
-        Mode::EditProject => " Edit Project ",
+        Mode::NewNamespace => " New Namespace ",
+        Mode::EditNamespace => " Edit Namespace ",
         _ => " Form ",
     };
 
     let fields = if app.mode == Mode::NewSecret || app.mode == Mode::EditSecret {
         SECRET_FIELDS
     } else {
-        PROJECT_FIELDS
+        NAMESPACE_FIELDS
     };
 
     let mut lines: Vec<Line> = vec![Line::from("")];
@@ -397,17 +397,17 @@ fn render_form(f: &mut Frame, app: &App) {
     f.render_widget(Paragraph::new(lines).block(block), area);
 }
 
-// --- Project-secrets checklist view ---
+// --- Namespace-secrets checklist view ---
 
-fn render_project_secrets(f: &mut Frame, app: &App) {
+fn render_namespace_secrets(f: &mut Frame, app: &App) {
     let area = f.area();
 
-    let proj_name = app
+    let ns_name = app
         .editing_id
         .as_ref()
-        .and_then(|id| app.projects.iter().find(|p| &p.id == id))
+        .and_then(|id| app.namespaces.iter().find(|p| &p.id == id))
         .map(|p| p.name.as_str())
-        .unwrap_or("project");
+        .unwrap_or("namespace");
 
     let items: Vec<ListItem> = app
         .secrets
@@ -432,7 +432,7 @@ fn render_project_secrets(f: &mut Frame, app: &App) {
         .collect();
 
     let block = Block::default()
-        .title(format!(" Secrets for project '{proj_name}' "))
+        .title(format!(" Secrets for namespace '{ns_name}' "))
         .borders(Borders::ALL)
         .border_style(Style::default().fg(Color::Cyan));
 

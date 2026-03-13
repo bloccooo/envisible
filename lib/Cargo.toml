@@ -1,5 +1,5 @@
 [package]
-name = "envilib"
+name = "lib"
 version.workspace = true
 edition = "2021"
 

@@ -12,7 +12,7 @@ pub struct EnviDocument {
     pub name: String,
     pub doc_version: u64,
     pub members: HashMap<String, Member>,
-    pub projects: HashMap<String, Project>,
+    pub namespaces: HashMap<String, Namespace>,
     pub secrets: HashMap<String, Secret>,
     /// Ed25519 signature over the canonical document bytes (excluding this field).
     /// Format: "member_id:base64(signature)". Empty on unsigned documents.
@@ -36,7 +36,7 @@ pub struct Member {
 }
 
 #[derive(Debug, Clone, Reconcile, Hydrate, Default)]
-pub struct Project {
+pub struct Namespace {
     pub id: String,
     pub name: String,
     pub secret_ids: Vec<String>,

@@ -1,6 +1,6 @@
 mod common;
 
-use envilib::{
+use lib::{
     invite::{generate_invite, parse_invite, WorkspacePayload},
     storage::{FsConfig, StorageConfig},
 };

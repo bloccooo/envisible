@@ -8,7 +8,7 @@ name = "envi"
 path = "src/main.rs"
 
 [dependencies]
-envilib = { path = "../envilib" }
+lib = { path = "../lib" }
 tokio = { workspace = true, features = ["net"] }
 serde = { workspace = true }
 serde_json = { workspace = true }

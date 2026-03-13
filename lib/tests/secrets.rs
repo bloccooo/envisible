@@ -1,6 +1,6 @@
 mod common;
 
-use envilib::{
+use lib::{
     crypto::generate_dek,
     secrets::{add_secret, list_secrets, remove_secret, update_secret, PlaintextSecretFields},
 };

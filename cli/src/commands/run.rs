@@ -1,5 +1,5 @@
 use autosurgeon::hydrate;
-use envilib::{
+use lib::{
     config::read_config,
     crypto::derive_private_key,
     envi_file::read_envi_file,
@@ -11,12 +11,12 @@ use envilib::{
 
 use crate::passphrase::prompt_passphrase;
 
-pub async fn run(project_arg: Option<String>, dry_run: bool, cmd: Vec<String>) -> Result<()> {
-    // Resolve project name: flag → .envi file → all secrets
-    let project_name = if project_arg.is_some() {
-        project_arg
+pub async fn run(namespace_arg: Option<String>, dry_run: bool, cmd: Vec<String>) -> Result<()> {
+    // Resolve namespace name: flag → .envi file → all secrets
+    let namespace_name = if namespace_arg.is_some() {
+        namespace_arg
     } else {
-        read_envi_file(".").await?.project
+        read_envi_file(".").await?.namespace
     };
 
     let config = read_config().await?.ok_or(Error::NoConfig)?;
@@ -59,17 +59,17 @@ pub async fn run(project_arg: Option<String>, dry_run: bool, cmd: Vec<String>) -
     let all_secrets = list_secrets(&doc, &session.dek)?;
     let state: EnviDocument = hydrate(&doc)?;
 
-    // Build env vars from project's secrets (or all secrets if no project)
+    // Build env vars from namespace's secrets (or all secrets if no namespace)
     let mut env_vars: Vec<(String, String)> = Vec::new();
 
-    if let Some(name) = &project_name {
-        let project = state
-            .projects
+    if let Some(name) = &namespace_name {
+        let namespace = state
+            .namespaces
             .values()
             .find(|p| p.name == *name)
-            .ok_or_else(|| Error::ProjectNotFound(name.clone()))?;
+            .ok_or_else(|| Error::NamespaceNotFound(name.clone()))?;
 
-        for id in &project.secret_ids {
+        for id in &namespace.secret_ids {
             if let Some(secret) = all_secrets.iter().find(|s| &s.id == id) {
                 env_vars.push((secret.name.clone(), secret.value.clone()));
             }
@@ -81,9 +81,9 @@ pub async fn run(project_arg: Option<String>, dry_run: bool, cmd: Vec<String>) -
     }
 
     if dry_run {
-        let label = project_name
+        let label = namespace_name
             .as_deref()
-            .map(|n| format!("project \"{n}\""))
+            .map(|n| format!("namespace \"{n}\""))
             .unwrap_or_else(|| "all secrets".to_string());
         println!("\nEnv vars that would be injected ({label}):\n");
         for (k, v) in &env_vars {
@@ -95,7 +95,7 @@ pub async fn run(project_arg: Option<String>, dry_run: bool, cmd: Vec<String>) -
 
     if cmd.is_empty() {
         return Err(Error::Other(
-            "no command given. Usage: envi run [options] -- <command>".to_string(),
+            "no command given. Usage: envi exec [options] -- <command>".to_string(),
         ));
     }
 
