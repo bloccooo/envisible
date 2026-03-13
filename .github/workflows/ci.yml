@@ -13,61 +13,100 @@ jobs:
   test:
     name: Test
     runs-on: ubuntu-latest
-
     steps:
       - uses: actions/checkout@v4
-
       - uses: dtolnay/rust-toolchain@stable
-
       - uses: Swatinem/rust-cache@v2
-
       - name: Run tests
         run: cargo test -p envilib
 
   build:
     name: Build check
     runs-on: ubuntu-latest
-
     steps:
       - uses: actions/checkout@v4
-
       - uses: dtolnay/rust-toolchain@stable
-
       - uses: Swatinem/rust-cache@v2
-
       - name: Build
         run: cargo build --workspace
 
-  release:
-    name: Tag release if version bumped
-    needs: [test, build]
-    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+  version:
+    name: Detect version bump
+    if: github.event_name == 'push'
     runs-on: ubuntu-latest
-
+    outputs:
+      bumped: ${{ steps.check.outputs.bumped }}
+      version: ${{ steps.check.outputs.version }}
     steps:
       - uses: actions/checkout@v4
         with:
           fetch-depth: 2
-          token: ${{ secrets.RELEASE_TOKEN || secrets.GITHUB_TOKEN }}
-
       - name: Check for version bump
-        id: version
+        id: check
         run: |
           NEW=$(grep '^version' Cargo.toml | head -1 | sed 's/version = "\(.*\)"/\1/')
           OLD=$(git show HEAD~1:Cargo.toml 2>/dev/null | grep '^version' | head -1 | sed 's/version = "\(.*\)"/\1/' || echo "")
-          echo "new=$NEW" >> "$GITHUB_OUTPUT"
-          echo "old=$OLD" >> "$GITHUB_OUTPUT"
+          echo "version=$NEW" >> "$GITHUB_OUTPUT"
           if [ "$NEW" != "$OLD" ] && [ -n "$NEW" ]; then
-            echo "bumped=true" >> "$GITHUB_OUTPUT"
+            echo "bumped=true"  >> "$GITHUB_OUTPUT"
           else
             echo "bumped=false" >> "$GITHUB_OUTPUT"
           fi
 
-      - name: Create and push tag
-        if: steps.version.outputs.bumped == 'true'
+  release-build:
+    name: Build binary (${{ matrix.artifact }})
+    needs: [test, build, version]
+    if: needs.version.outputs.bumped == 'true'
+    runs-on: ${{ matrix.os }}
+    strategy:
+      matrix:
+        include:
+          - os: ubuntu-latest
+            target: x86_64-unknown-linux-musl
+            artifact: envi-linux-x64
+          - os: macos-latest
+            target: aarch64-apple-darwin
+            artifact: envi-darwin-arm64
+          - os: macos-latest
+            target: x86_64-apple-darwin
+            artifact: envi-darwin-x64
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install musl tools (Linux)
+        if: runner.os == 'Linux'
+        run: sudo apt-get install -y musl-tools
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.target }}
+      - uses: Swatinem/rust-cache@v2
+      - name: Build binary
+        run: cargo build --release --target ${{ matrix.target }}
+      - name: Stage binary
+        run: cp target/${{ matrix.target }}/release/envi ${{ matrix.artifact }}
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.artifact }}
+          path: ${{ matrix.artifact }}
+
+  publish:
+    name: Publish release v${{ needs.version.outputs.version }}
+    needs: [release-build, version]
+    if: needs.version.outputs.bumped == 'true'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          merge-multiple: true
+      - name: Tag release
         run: |
-          VERSION="${{ steps.version.outputs.new }}"
           git config user.name  "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
-          git tag "v${VERSION}"
-          git push origin "v${VERSION}"
+          git tag "v${{ needs.version.outputs.version }}"
+          git push origin "v${{ needs.version.outputs.version }}"
+      - name: Create GitHub release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: v${{ needs.version.outputs.version }}
+          files: envi-*
+          generate_release_notes: true

@@ -1,7 +1,6 @@
 # Envisible [envi]
 
 [![CI](https://github.com/bloccooo/envisible/actions/workflows/ci.yml/badge.svg)](https://github.com/bloccooo/envisible/actions/workflows/ci.yml)
-[![Release](https://github.com/bloccooo/envisible/actions/workflows/release.yml/badge.svg)](https://github.com/bloccooo/envisible/actions/workflows/release.yml)
 
 A serverless secret manager for teams. Secrets are stored encrypted in a storage backend of your choice (S3, R2, WebDAV, or local) and synced across team members using a [CRDT](https://automerge.org) — no central server, no shared master password, no trust in the storage provider.
 
