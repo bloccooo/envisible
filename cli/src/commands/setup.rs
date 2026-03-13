@@ -1,5 +1,6 @@
 use autosurgeon::{hydrate, reconcile};
 use base64::{engine::general_purpose::STANDARD as B64, Engine};
+use console::{style, Term};
 use dialoguer::{Input, Password, Select};
 use envilib::{
     config::{read_config, write_config, EnviConfig, WorkspaceConfig},
@@ -10,17 +11,56 @@ use envilib::{
     store::Store,
     types::{EnviDocument, Member},
 };
+use indicatif::{ProgressBar, ProgressStyle};
+use std::time::Duration;
 use uuid::Uuid;
 
+fn spinner(msg: &str) -> ProgressBar {
+    let pb = ProgressBar::new_spinner();
+    pb.set_style(
+        ProgressStyle::default_spinner()
+            .tick_strings(&["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"])
+            .template("{spinner:.cyan} {msg}")
+            .unwrap(),
+    );
+    pb.set_message(msg.to_string());
+    pb.enable_steady_tick(Duration::from_millis(80));
+    pb
+}
+
+fn done(pb: ProgressBar, msg: &str) {
+    pb.finish_with_message(format!("{} {}", style("✓").green().bold(), msg));
+}
+
 pub async fn run(invite_link_arg: Option<String>) -> Result<()> {
-    println!("envi setup");
+    let term = Term::stdout();
+    let _ = term.clear_screen();
+
+    println!();
+    for line in [
+        " ███████╗███╗   ██╗██╗   ██╗██╗",
+        " ██╔════╝████╗  ██║██║   ██║██║",
+        " █████╗  ██╔██╗ ██║██║   ██║██║",
+        " ██╔══╝  ██║╚██╗██║╚██╗ ██╔╝██║",
+        " ███████╗██║ ╚████║ ╚████╔╝ ██║",
+        " ╚══════╝╚═╝  ╚═══╝  ╚═══╝  ╚═╝",
+    ] {
+        println!("  {}", style(line).cyan().bold());
+    }
+    println!();
+    println!("  {}", style("serverless secret manager for teams").dim());
+    println!("  {}", style("─".repeat(38)).dim());
+    println!();
 
     let mut config = read_config().await?;
 
     // First-time setup: collect member name
     if config.is_none() {
+        println!("  {} {}", style("→").cyan(), style("First time? Let's create your profile.").bold());
+        println!();
+
         let member_name: String = Input::new()
-            .with_prompt("Member name")
+            .with_prompt(format!("  {}", style("Your name").bold()))
             .interact_text()
             .map_err(|e| envilib::error::Error::Other(e.to_string()))?;
 
@@ -32,43 +72,56 @@ pub async fn run(invite_link_arg: Option<String>) -> Result<()> {
         };
         write_config(&cfg).await?;
         config = Some(cfg);
+        println!();
     }
 
     let mut config = config.unwrap();
 
-    // Passphrase is never persisted — always prompt
+    println!("  {} {}", style("→").cyan(), style("Set a passphrase to protect your keys.").bold());
+    println!("  {}", style("This never leaves your device.").dim());
+    println!();
+
     let passphrase = crate::passphrase::prompt_new_passphrase()?;
+    println!();
 
     // Choose: create new workspace or join via invite
     let action = if invite_link_arg.is_some() {
         1 // import
     } else {
+        println!("  {} {}", style("→").cyan(), style("What would you like to do?").bold());
+        println!();
         Select::new()
-            .with_prompt("Initialize workspace")
+            .with_prompt(format!("  {}", style("Action").bold()))
             .items(&[
-                "Create new workspace",
-                "Join existing workspace (invite link)",
+                "Create a new workspace",
+                "Join an existing workspace (invite link)",
             ])
             .default(0)
             .interact()
             .map_err(|e| envilib::error::Error::Other(e.to_string()))?
     };
 
+    println!();
+
     if action == 1 {
         // Join via invite link
         let invite_link = if let Some(link) = invite_link_arg {
             link
         } else {
+            println!("  {} {}", style("→").cyan(), style("Paste your invite link below.").bold());
+            println!();
             Input::new()
-                .with_prompt("Invite link")
+                .with_prompt(format!("  {}", style("Invite link").bold()))
                 .interact_text()
                 .map_err(|e| envilib::error::Error::Other(e.to_string()))?
         };
 
         let payload = parse_invite(&invite_link)?;
 
+        let pb = spinner(&format!("Connecting to workspace '{}'…", payload.workspace.name));
         let store = Store::new(&payload.workspace.id, &config.member_id, &payload.storage)?;
         let mut doc = store.pull().await?;
+        done(pb, "Connected");
 
         let private_key = derive_private_key(&passphrase, &payload.workspace.id, &config.member_id)?;
         let public_key = get_public_key(&private_key);
@@ -96,18 +149,34 @@ pub async fn run(invite_link_arg: Option<String>) -> Result<()> {
             },
         );
         reconcile(&mut doc, &state)?;
-        store.persist(&mut doc, &signing_key).await?;
 
+        let pb = spinner("Registering your keys…");
+        store.persist(&mut doc, &signing_key).await?;
+        done(pb, "Registered");
+
+        println!();
         println!(
-            "Joined workspace '{}'. An existing member needs to sync and grant you access.",
-            payload.workspace.name
+            "  {} Joined {}",
+            style("✓").green().bold(),
+            style(&payload.workspace.name).cyan().bold(),
+        );
+        println!(
+            "  {} An existing member needs to sync and grant you access.",
+            style("i").dim(),
         );
     } else {
         // Create new workspace
+        println!("  {} {}", style("→").cyan(), style("Name your workspace.").bold());
+        println!();
+
         let workspace_name: String = Input::new()
-            .with_prompt("Workspace name")
+            .with_prompt(format!("  {}", style("Workspace name").bold()))
             .interact_text()
             .map_err(|e| envilib::error::Error::Other(e.to_string()))?;
+
+        println!();
+        println!("  {} {}", style("→").cyan(), style("Choose where to store encrypted data.").bold());
+        println!();
 
         let storage_config = collect_storage_config()?;
         let workspace_id = Uuid::now_v7().to_string();
@@ -121,7 +190,9 @@ pub async fn run(invite_link_arg: Option<String>) -> Result<()> {
         });
         write_config(&config).await?;
 
+        let pb = spinner("Initializing workspace…");
         let mut doc = store.pull().await?;
+        done(pb, "Storage ready");
 
         let private_key = derive_private_key(&passphrase, &workspace_id, &config.member_id)?;
         let public_key = get_public_key(&private_key);
@@ -147,35 +218,48 @@ pub async fn run(invite_link_arg: Option<String>) -> Result<()> {
             },
         );
         reconcile(&mut doc, &state)?;
-        store.persist(&mut doc, &signing_key).await?;
 
+        let pb = spinner("Encrypting and saving…");
+        store.persist(&mut doc, &signing_key).await?;
+        done(pb, "Saved");
+
+        println!();
         println!(
-            "Workspace '{}' created. Run `envi ui` to manage secrets.",
-            workspace_name
+            "  {} Workspace {} created!",
+            style("✓").green().bold(),
+            style(&workspace_name).cyan().bold(),
+        );
+        println!(
+            "  {} Run {} to manage your secrets.",
+            style("i").dim(),
+            style("envi ui").cyan(),
         );
     }
 
+    println!();
     Ok(())
 }
 
 fn collect_storage_config() -> Result<StorageConfig> {
     let backends = [
         "Local filesystem",
-        "S3-compatible (AWS, MinIO, B2…)",
+        "S3-compatible  (AWS, MinIO, B2…)",
         "Cloudflare R2",
         "WebDAV",
     ];
     let choice = Select::new()
-        .with_prompt("Storage backend")
+        .with_prompt(format!("  {}", style("Storage backend").bold()))
         .items(&backends)
         .default(0)
         .interact()
         .map_err(|e| envilib::error::Error::Other(e.to_string()))?;
 
+    println!();
+
     match choice {
         0 => {
             let root: String = Input::new()
-                .with_prompt("Storage path")
+                .with_prompt(format!("  {}", style("Storage path").bold()))
                 .default("./envi-storage".to_string())
                 .interact_text()
                 .map_err(|e| envilib::error::Error::Other(e.to_string()))?;
@@ -185,11 +269,7 @@ fn collect_storage_config() -> Result<StorageConfig> {
             let bucket = prompt("Bucket name")?;
             let region = prompt_default("Region", "us-east-1")?;
             let endpoint_str = prompt_optional("Endpoint URL (blank for AWS)")?;
-            let endpoint = if endpoint_str.is_empty() {
-                None
-            } else {
-                Some(endpoint_str)
-            };
+            let endpoint = if endpoint_str.is_empty() { None } else { Some(endpoint_str) };
             let access_key_id = prompt("Access Key ID")?;
             let secret_access_key = prompt_password("Secret Access Key")?;
             Ok(StorageConfig::S3(envilib::storage::S3Config {
@@ -227,14 +307,14 @@ fn collect_storage_config() -> Result<StorageConfig> {
 
 fn prompt(msg: &str) -> Result<String> {
     Input::new()
-        .with_prompt(msg)
+        .with_prompt(format!("  {}", style(msg).bold()))
         .interact_text()
         .map_err(|e| envilib::error::Error::Other(e.to_string()))
 }
 
 fn prompt_default(msg: &str, default: &str) -> Result<String> {
     Input::new()
-        .with_prompt(msg)
+        .with_prompt(format!("  {}", style(msg).bold()))
         .default(default.to_string())
         .interact_text()
         .map_err(|e| envilib::error::Error::Other(e.to_string()))
@@ -242,7 +322,7 @@ fn prompt_default(msg: &str, default: &str) -> Result<String> {
 
 fn prompt_optional(msg: &str) -> Result<String> {
     Input::new()
-        .with_prompt(msg)
+        .with_prompt(format!("  {}", style(msg).bold()))
         .allow_empty(true)
         .interact_text()
         .map_err(|e| envilib::error::Error::Other(e.to_string()))
@@ -250,14 +330,14 @@ fn prompt_optional(msg: &str) -> Result<String> {
 
 fn prompt_password(msg: &str) -> Result<String> {
     Password::new()
-        .with_prompt(msg)
+        .with_prompt(format!("  {}", style(msg).bold()))
         .interact()
         .map_err(|e| envilib::error::Error::Other(e.to_string()))
 }
 
 fn prompt_optional_password(msg: &str) -> Result<String> {
     Password::new()
-        .with_prompt(msg)
+        .with_prompt(format!("  {}", style(msg).bold()))
         .allow_empty_password(true)
         .interact()
         .map_err(|e| envilib::error::Error::Other(e.to_string()))

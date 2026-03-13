@@ -1,10 +1,11 @@
+use console::style;
 use dialoguer::Password;
 use envilib::error::{Error, Result};
 
 /// Prompt for an existing passphrase (no validation — just reads it).
 pub fn prompt_passphrase() -> Result<String> {
     Password::new()
-        .with_prompt("Passphrase")
+        .with_prompt(format!("  {}", style("Passphrase").bold()))
         .interact()
         .map_err(|e| Error::Other(e.to_string()))
 }
@@ -14,22 +15,22 @@ pub fn prompt_passphrase() -> Result<String> {
 pub fn prompt_new_passphrase() -> Result<String> {
     loop {
         let passphrase = Password::new()
-            .with_prompt("Passphrase")
+            .with_prompt(format!("  {}", style("Passphrase").bold()))
             .interact()
             .map_err(|e| Error::Other(e.to_string()))?;
 
         if let Err(msg) = check_strength(&passphrase) {
-            eprintln!("Passphrase too weak: {msg}");
+            eprintln!("  {} Passphrase too weak: {}", style("✗").red().bold(), style(msg).yellow());
             continue;
         }
 
         let confirmation = Password::new()
-            .with_prompt("Confirm passphrase")
+            .with_prompt(format!("  {}", style("Confirm passphrase").bold()))
             .interact()
             .map_err(|e| Error::Other(e.to_string()))?;
 
         if passphrase != confirmation {
-            eprintln!("Passphrases do not match, try again.");
+            eprintln!("  {} Passphrases do not match, try again.", style("✗").red().bold());
             continue;
         }
 

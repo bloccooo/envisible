@@ -27,3 +27,5 @@ hex = "0.4"
 uuid = { version = "1", features = ["v7"] }
 base64 = { workspace = true }
 arboard = "3"
+console = "0.15"
+indicatif = "0.17"
