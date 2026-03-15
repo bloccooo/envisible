@@ -34,7 +34,8 @@ enum Command {
         cmd: Vec<String>,
     },
     /// Sync the vault manually
-    Sync,
+    #[command(name = "force-sync")]
+    ForceSync,
     /// Clear cached credentials and stop the key agent
     Logout,
     /// Remove all local data (cache, config, agent)
@@ -60,7 +61,7 @@ async fn main() {
         Command::Exec { tag, dry_run, cmd } => {
             commands::run::run(tag, dry_run, cmd).await
         }
-        Command::Sync => commands::sync::run().await,
+        Command::ForceSync => commands::sync::run().await,
         Command::Logout => agent::run(false, true).await,
         Command::Wipe => commands::clear::run().await,
         Command::Agent { serve, kill } => agent::run(serve, kill).await,
