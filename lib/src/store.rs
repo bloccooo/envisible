@@ -17,14 +17,14 @@ use tokio::time::{timeout, Duration};
 const REMOTE_TIMEOUT: Duration = Duration::from_secs(5);
 
 pub struct Store {
-    workspace_id: String,
+    vault_id: String,
     member_id: String,
     remote: StorageBackend,
     local: StorageBackend,
 }
 
 impl Store {
-    pub fn new(workspace_id: &str, member_id: &str, storage: &StorageConfig) -> Result<Self> {
+    pub fn new(vault_id: &str, member_id: &str, storage: &StorageConfig) -> Result<Self> {
         let remote = StorageBackend::new(storage)?;
 
         let cache_root = cache_dir();
@@ -34,7 +34,7 @@ impl Store {
         let local = StorageBackend::new(&local_config)?;
 
         Ok(Self {
-            workspace_id: workspace_id.to_string(),
+            vault_id: vault_id.to_string(),
             member_id: member_id.to_string(),
             remote,
             local,
@@ -42,7 +42,7 @@ impl Store {
     }
 
     pub async fn pull(&self) -> Result<AutoCommit> {
-        let prefix = pull_prefix(&self.workspace_id);
+        let prefix = pull_prefix(&self.vault_id);
 
         let local_doc = self.load_local(&prefix).await;
 
@@ -57,7 +57,7 @@ impl Store {
                 l
             }
             (Some(d), None) | (None, Some(d)) => d,
-            (None, None) => init_doc(&self.workspace_id),
+            (None, None) => init_doc(&self.vault_id),
         };
 
         Ok(doc)
@@ -76,7 +76,7 @@ impl Store {
         reconcile(doc, &state)?;
 
         let data = doc.save();
-        let push = push_path(&self.workspace_id, &self.member_id);
+        let push = push_path(&self.vault_id, &self.member_id);
 
         // Always write to local cache
         self.local.push(&push, data.clone()).await?;
@@ -147,10 +147,10 @@ fn load_and_verify_files(files: Vec<Vec<u8>>) -> Option<AutoCommit> {
     })
 }
 
-fn init_doc(workspace_id: &str) -> AutoCommit {
+fn init_doc(vault_id: &str) -> AutoCommit {
     let mut doc = AutoCommit::new();
     let state = EnviDocument {
-        id: workspace_id.to_string(),
+        id: vault_id.to_string(),
         name: String::new(),
         doc_version: 0,
         members: Default::default(),

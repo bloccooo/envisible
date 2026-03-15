@@ -19,38 +19,38 @@ pub async fn run(tag_arg: Option<String>, dry_run: bool, cmd: Vec<String>) -> Re
 
     let config = read_config().await?.ok_or(Error::NoConfig)?;
 
-    if config.workspaces.is_empty() {
-        return Err(Error::NoWorkspaces);
+    if config.vaults.is_empty() {
+        return Err(Error::NoVaults);
     }
 
-    let workspace = if config.workspaces.len() == 1 {
-        config.workspaces.into_iter().next().unwrap()
+    let vault = if config.vaults.len() == 1 {
+        config.vaults.into_iter().next().unwrap()
     } else {
-        let names: Vec<_> = config.workspaces.iter().map(|w| w.name.as_str()).collect();
+        let names: Vec<_> = config.vaults.iter().map(|w| w.name.as_str()).collect();
         let idx = dialoguer::Select::new()
-            .with_prompt("Select workspace")
+            .with_prompt("Select vault")
             .items(&names)
             .default(0)
             .interact()
             .map_err(|e| Error::Other(e.to_string()))?;
-        config.workspaces.into_iter().nth(idx).unwrap()
+        config.vaults.into_iter().nth(idx).unwrap()
     };
 
-    let store = Store::new(&workspace.id, &config.member_id, &workspace.storage)?;
+    let store = Store::new(&vault.id, &config.member_id, &vault.storage)?;
     let doc = store.pull().await?;
     let agent = crate::agent::AgentClient::connect_or_start();
     let private_key = if let Some(ref agent) = agent {
-        if let Some(key) = agent.get_key(&workspace.id) {
+        if let Some(key) = agent.get_key(&vault.id) {
             key
         } else {
-            derive_private_key(&prompt_passphrase()?, &workspace.id, &config.member_id)?
+            derive_private_key(&prompt_passphrase()?, &vault.id, &config.member_id)?
         }
     } else {
-        derive_private_key(&prompt_passphrase()?, &workspace.id, &config.member_id)?
+        derive_private_key(&prompt_passphrase()?, &vault.id, &config.member_id)?
     };
     let session = unlock(&doc, &private_key)?;
     if let Some(ref agent) = agent {
-        agent.store_key(&workspace.id, &private_key);
+        agent.store_key(&vault.id, &private_key);
     }
 
     let all_secrets = list_secrets(&doc, &session.dek)?;

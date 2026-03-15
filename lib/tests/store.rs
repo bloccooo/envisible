@@ -26,7 +26,7 @@ fn unlock_returns_correct_dek() {
 #[test]
 fn unlock_with_wrong_passphrase_returns_not_a_member() {
     let ws = common::setup();
-    let wrong_key = derive_private_key("wrong-passphrase", common::WORKSPACE_ID, common::MEMBER_ID).unwrap();
+    let wrong_key = derive_private_key("wrong-passphrase", common::VAULT_ID, common::MEMBER_ID).unwrap();
     let err = unlock(&ws.doc, &wrong_key).err().expect("should return an error");
     assert!(matches!(err, lib::error::Error::NotAMember));
 }
@@ -34,7 +34,7 @@ fn unlock_with_wrong_passphrase_returns_not_a_member() {
 #[test]
 fn unlock_with_wrong_member_id_returns_not_a_member() {
     let ws = common::setup();
-    let wrong_key = derive_private_key(common::PASSPHRASE, common::WORKSPACE_ID, "other-member-id").unwrap();
+    let wrong_key = derive_private_key(common::PASSPHRASE, common::VAULT_ID, "other-member-id").unwrap();
     let err = unlock(&ws.doc, &wrong_key).err().expect("should return an error");
     assert!(matches!(err, lib::error::Error::NotAMember));
 }
@@ -65,7 +65,7 @@ fn unlock_pending_member_returns_access_pending() {
         name: "ws".to_string(),
         doc_version: 1,
         members,
-        namespaces: HashMap::new(),
+
         secrets: HashMap::new(),
         document_signature: String::new(),
     };
@@ -82,7 +82,7 @@ fn unlock_detects_tampered_key_mac() {
     use lib::crypto::{compute_key_mac, derive_signing_key, generate_dek};
 
     // Set up a member with a valid key MAC ...
-    let private_key = derive_private_key("passphrase", "workspace-id", "member-one-id").unwrap();
+    let private_key = derive_private_key("passphrase", "vault-id", "member-one-id").unwrap();
     let public_key = get_public_key(&private_key);
     let public_key_b64 = B64.encode(public_key);
     let signing_key = derive_signing_key(&private_key);
@@ -93,7 +93,7 @@ fn unlock_detects_tampered_key_mac() {
     let key_mac = compute_key_mac(&dek, "member-one-id", &public_key_b64, &verifying_key_b64);
 
     // ... but another member with a tampered (wrong) key MAC
-    let private_key2 = derive_private_key("passphrase", "workspace-id", "member-two-id").unwrap();
+    let private_key2 = derive_private_key("passphrase", "vault-id", "member-two-id").unwrap();
     let public_key2 = get_public_key(&private_key2);
     let public_key2_b64 = B64.encode(public_key2);
     let signing_key2 = derive_signing_key(&private_key2);
@@ -126,11 +126,11 @@ fn unlock_detects_tampered_key_mac() {
     );
 
     let state = EnviDocument {
-        id: "workspace-id".to_string(),
-        name: "Workspace".to_string(),
+        id: "vault-id".to_string(),
+        name: "Vault".to_string(),
         doc_version: 1,
         members,
-        namespaces: HashMap::new(),
+
         secrets: HashMap::new(),
         document_signature: String::new(),
     };

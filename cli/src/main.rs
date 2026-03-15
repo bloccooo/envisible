@@ -14,7 +14,7 @@ struct Cli {
 
 #[derive(Subcommand)]
 enum Command {
-    /// Set up a new workspace or join an existing one
+    /// Set up a new vault or join an existing one
     Setup {
         /// Accept an invite link directly
         invite: Option<String>,
@@ -33,7 +33,7 @@ enum Command {
         #[arg(last = true)]
         cmd: Vec<String>,
     },
-    /// Sync the workspace manually
+    /// Sync the vault manually
     Sync,
     /// Clear cached credentials and stop the key agent
     Logout,

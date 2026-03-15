@@ -162,10 +162,10 @@ impl StorageBackend {
     }
 }
 
-pub fn push_path(workspace_id: &str, member_id: &str) -> String {
-    format!("_envi/{workspace_id}/{member_id}.{DOC_EXTENSION}")
+pub fn push_path(vault_id: &str, member_id: &str) -> String {
+    format!("_envi/{vault_id}/{member_id}.{DOC_EXTENSION}")
 }
 
-pub fn pull_prefix(workspace_id: &str) -> String {
-    format!("_envi/{workspace_id}/")
+pub fn pull_prefix(vault_id: &str) -> String {
+    format!("_envi/{vault_id}/")
 }

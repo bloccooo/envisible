@@ -2,10 +2,10 @@ use autosurgeon::{Hydrate, Reconcile};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 
-/// Automerge document — the entire workspace.
+/// Automerge document — the entire vault.
 /// Collections are maps keyed by UUID for stable CRDT keys.
 /// Secret fields (name, value, description, tags) are AES-256-GCM encrypted
-/// using the workspace DEK. The DEK itself is X25519/ECIES-wrapped per member.
+/// using the vault DEK. The DEK itself is X25519/ECIES-wrapped per member.
 #[derive(Debug, Clone, Reconcile, Hydrate, Default)]
 pub struct EnviDocument {
     pub id: String,

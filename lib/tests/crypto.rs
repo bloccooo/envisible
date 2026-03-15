@@ -4,8 +4,8 @@ use base64::{engine::general_purpose::STANDARD as B64, Engine};
 use lib::{
     crypto::{
         canonical_document_bytes, compute_key_mac, decrypt_field, derive_private_key,
-        derive_signing_key, encrypt_field, generate_dek, get_public_key, sign_document,
-        unwrap_dek, verify_document_signature, verify_key_mac, wrap_dek,
+        derive_signing_key, encrypt_field, generate_dek, get_public_key, sign_document, unwrap_dek,
+        verify_document_signature, verify_key_mac, wrap_dek,
     },
     types::{EnviDocument, Member},
 };
@@ -28,7 +28,7 @@ fn derive_private_key_differs_by_passphrase() {
 }
 
 #[test]
-fn derive_private_key_differs_by_workspace_id() {
+fn derive_private_key_differs_by_vault_id() {
     let k1 = derive_private_key("pass", "ws1", "member").unwrap();
     let k2 = derive_private_key("pass", "ws2", "member").unwrap();
     assert_ne!(k1, k2);
@@ -45,7 +45,7 @@ fn derive_private_key_differs_by_member_id() {
 
 #[test]
 fn wrap_unwrap_dek_roundtrip() {
-    let private_key = derive_private_key("passphrase", "workspace-id", "member-id").unwrap();
+    let private_key = derive_private_key("passphrase", "vault-id", "member-id").unwrap();
     let public_key = get_public_key(&private_key);
     let dek = generate_dek();
     let wrapped = wrap_dek(&dek, &public_key).unwrap();
@@ -55,12 +55,12 @@ fn wrap_unwrap_dek_roundtrip() {
 
 #[test]
 fn unwrap_dek_fails_with_wrong_private_key() {
-    let private_key = derive_private_key("passphrase", "workspace-id", "member-id").unwrap();
+    let private_key = derive_private_key("passphrase", "vault-id", "member-id").unwrap();
     let public_key = get_public_key(&private_key);
     let dek = generate_dek();
     let wrapped = wrap_dek(&dek, &public_key).unwrap();
 
-    let wrong_key = derive_private_key("other-pass", "workspace-id", "member-id").unwrap();
+    let wrong_key = derive_private_key("other-pass", "vault-id", "member-id").unwrap();
     assert!(unwrap_dek(&wrapped, &wrong_key).is_err());
 }
 
@@ -160,7 +160,7 @@ fn empty_doc(id: &str) -> EnviDocument {
         name: "ws".to_string(),
         doc_version: 1,
         members: HashMap::new(),
-        namespaces: HashMap::new(),
+
         secrets: HashMap::new(),
         document_signature: String::new(),
     }
@@ -210,10 +210,14 @@ fn canonical_bytes_exclude_document_signature() {
 #[test]
 fn canonical_bytes_exclude_pending_members() {
     let mut doc_without = empty_doc("ws-id");
-    doc_without.members.insert("m1".to_string(), active_member("m1"));
+    doc_without
+        .members
+        .insert("m1".to_string(), active_member("m1"));
 
     let mut doc_with = doc_without.clone();
-    doc_with.members.insert("pending".to_string(), pending_member("pending"));
+    doc_with
+        .members
+        .insert("pending".to_string(), pending_member("pending"));
 
     assert_eq!(
         canonical_document_bytes(&doc_without),
@@ -230,5 +234,8 @@ fn canonical_bytes_change_when_active_member_added() {
     let mut doc2 = doc1.clone();
     doc2.members.insert("m2".to_string(), active_member("m2"));
 
-    assert_ne!(canonical_document_bytes(&doc1), canonical_document_bytes(&doc2));
+    assert_ne!(
+        canonical_document_bytes(&doc1),
+        canonical_document_bytes(&doc2)
+    );
 }

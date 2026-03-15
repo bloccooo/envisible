@@ -2,7 +2,7 @@ use thiserror::Error;
 
 #[derive(Error, Debug)]
 pub enum Error {
-    #[error("not a member of this workspace")]
+    #[error("not a member of this vault")]
     NotAMember,
 
     #[error("access pending — an existing member needs to sync and grant access first")]
@@ -44,8 +44,8 @@ pub enum Error {
     #[error("no config found — run: envi setup")]
     NoConfig,
 
-    #[error("no workspaces configured — run: envi setup")]
-    NoWorkspaces,
+    #[error("no vaults configured — run: envi setup")]
+    NoVaults,
 
 #[error("secret not found: {0}")]
     SecretNotFound(String),

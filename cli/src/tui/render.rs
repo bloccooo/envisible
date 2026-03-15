@@ -72,7 +72,7 @@ fn render_header(f: &mut Frame, app: &App, area: Rect) {
         Line::from(Span::raw(app.account_name.clone())),
         Line::from(Span::raw(format!(
             "{} · {}",
-            app.workspace_name.clone(),
+            app.vault_name.clone(),
             app.storage_backend.clone()
         ))),
     ];

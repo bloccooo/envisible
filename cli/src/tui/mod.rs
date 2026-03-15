@@ -14,7 +14,7 @@ use tokio::time::Duration;
 
 use app::App;
 
-pub async fn run(doc: AutoCommit, store: Store, session: Session, invite_link: String, account_name: String, workspace_name: String, storage_backend: String) -> Result<()> {
+pub async fn run(doc: AutoCommit, store: Store, session: Session, invite_link: String, account_name: String, vault_name: String, storage_backend: String) -> Result<()> {
     enable_raw_mode().map_err(|e| lib::error::Error::Other(e.to_string()))?;
     let mut stdout = io::stdout();
     execute!(stdout, EnterAlternateScreen)
@@ -24,7 +24,7 @@ pub async fn run(doc: AutoCommit, store: Store, session: Session, invite_link: S
     let mut terminal = Terminal::new(backend)
         .map_err(|e| lib::error::Error::Other(e.to_string()))?;
 
-    let result = run_app(&mut terminal, doc, store, session, invite_link, account_name, workspace_name, storage_backend).await;
+    let result = run_app(&mut terminal, doc, store, session, invite_link, account_name, vault_name, storage_backend).await;
 
     disable_raw_mode().map_err(|e| lib::error::Error::Other(e.to_string()))?;
     execute!(terminal.backend_mut(), LeaveAlternateScreen)
@@ -42,10 +42,10 @@ async fn run_app(
     session: Session,
     invite_link: String,
     account_name: String,
-    workspace_name: String,
+    vault_name: String,
     storage_backend: String,
 ) -> Result<()> {
-    let mut app = App::new(doc, store, session, invite_link, account_name, workspace_name, storage_backend)?;
+    let mut app = App::new(doc, store, session, invite_link, account_name, vault_name, storage_backend)?;
 
     loop {
         terminal

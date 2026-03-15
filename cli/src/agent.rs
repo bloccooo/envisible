@@ -69,8 +69,8 @@ fn write_agent_file(info: &AgentInfo) -> std::io::Result<()> {
 #[serde(tag = "type", rename_all = "snake_case")]
 enum Request {
     Ping { token: String },
-    GetKey { token: String, workspace_id: String, session_id: String },
-    StoreKey { token: String, workspace_id: String, session_id: String, key: String },
+    GetKey { token: String, vault_id: String, session_id: String },
+    StoreKey { token: String, vault_id: String, session_id: String, key: String },
     Kill { token: String },
 }
 
@@ -143,10 +143,10 @@ impl AgentClient {
             .unwrap_or(false)
     }
 
-    pub fn get_key(&self, workspace_id: &str) -> Option<[u8; 32]> {
+    pub fn get_key(&self, vault_id: &str) -> Option<[u8; 32]> {
         let resp = self.request(&Request::GetKey {
             token: self.token.clone(),
-            workspace_id: workspace_id.to_string(),
+            vault_id: vault_id.to_string(),
             session_id: get_tty(),
         })?;
         if !resp.ok { return None; }
@@ -154,10 +154,10 @@ impl AgentClient {
         bytes.try_into().ok()
     }
 
-    pub fn store_key(&self, workspace_id: &str, key: &[u8; 32]) {
+    pub fn store_key(&self, vault_id: &str, key: &[u8; 32]) {
         let _ = self.request(&Request::StoreKey {
             token: self.token.clone(),
-            workspace_id: workspace_id.to_string(),
+            vault_id: vault_id.to_string(),
             session_id: get_tty(),
             key: hex::encode(key),
         });
@@ -306,17 +306,17 @@ async fn handle_connection(
 
     let (resp, should_exit) = match req {
         Request::Ping { .. } => (Response::ok(), false),
-        Request::GetKey { workspace_id, session_id, .. } => {
+        Request::GetKey { vault_id, session_id, .. } => {
             let keys = keys.lock().unwrap();
-            match keys.get(&(workspace_id, session_id)) {
+            match keys.get(&(vault_id, session_id)) {
                 Some(key) => (Response::with_key(hex::encode(key)), false),
                 None => (Response::err("not_found"), false),
             }
         }
-        Request::StoreKey { workspace_id, session_id, key, .. } => {
+        Request::StoreKey { vault_id, session_id, key, .. } => {
             match hex::decode(&key).ok().and_then(|b| b.try_into().ok()) {
                 Some(key_bytes) => {
-                    keys.lock().unwrap().insert((workspace_id, session_id), key_bytes);
+                    keys.lock().unwrap().insert((vault_id, session_id), key_bytes);
                     (Response::ok(), false)
                 }
                 None => (Response::err("invalid_key"), false),

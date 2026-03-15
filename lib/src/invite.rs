@@ -5,20 +5,20 @@ use serde::{Deserialize, Serialize};
 const INVITE_PREFIX: &str = "envi-invite:";
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct WorkspacePayload {
+pub struct VaultPayload {
     pub id: String,
     pub name: String,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct InvitePayload {
-    pub workspace: WorkspacePayload,
+    pub vault: VaultPayload,
     pub storage: StorageConfig,
 }
 
-pub fn generate_invite(storage: &StorageConfig, workspace: WorkspacePayload) -> Result<String> {
+pub fn generate_invite(storage: &StorageConfig, vault: VaultPayload) -> Result<String> {
     let payload = InvitePayload {
-        workspace,
+        vault,
         storage: storage.clone(),
     };
     let json = serde_json::to_string(&payload)?;

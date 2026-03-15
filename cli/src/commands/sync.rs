@@ -10,19 +10,19 @@ use crate::passphrase::prompt_passphrase;
 pub async fn run() -> Result<()> {
     let config = read_config().await?.ok_or(Error::NoConfig)?;
 
-    if config.workspaces.is_empty() {
-        return Err(Error::NoWorkspaces);
+    if config.vaults.is_empty() {
+        return Err(Error::NoVaults);
     }
 
     let passphrase = prompt_passphrase()?;
 
-    for workspace in &config.workspaces {
-        print!("Syncing workspace '{}'... ", workspace.name);
-        let store = Store::new(&workspace.id, &config.member_id, &workspace.storage)?;
+    for vault in &config.vaults {
+        print!("Syncing vault '{}'... ", vault.name);
+        let store = Store::new(&vault.id, &config.member_id, &vault.storage)?;
         match store.pull().await {
             Ok(mut doc) => {
                 let private_key =
-                    derive_private_key(&passphrase, &workspace.id, &config.member_id)?;
+                    derive_private_key(&passphrase, &vault.id, &config.member_id)?;
                 let signing_key = derive_signing_key(&private_key);
                 store.persist(&mut doc, &signing_key).await?;
                 println!("ok");

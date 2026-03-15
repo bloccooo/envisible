@@ -3,7 +3,7 @@ use base64::{engine::general_purpose::STANDARD as B64, Engine};
 use console::{style, Term};
 use dialoguer::{Input, Password, Select};
 use lib::{
-    config::{read_config, write_config, EnviConfig, WorkspaceConfig},
+    config::{read_config, write_config, EnviConfig, VaultConfig},
     crypto::{
         compute_key_mac, derive_private_key, derive_signing_key, generate_dek, get_public_key,
         wrap_dek,
@@ -75,7 +75,7 @@ pub async fn run(invite_link_arg: Option<String>) -> Result<()> {
             version: "v1".to_string(),
             member_name: member_name.clone(),
             member_id: Uuid::new_v4().to_string(),
-            workspaces: vec![],
+            vaults: vec![],
         };
         write_config(&cfg).await?;
         config = Some(cfg);
@@ -95,7 +95,7 @@ pub async fn run(invite_link_arg: Option<String>) -> Result<()> {
     let passphrase = crate::passphrase::prompt_new_passphrase()?;
     println!();
 
-    // Choose: create new workspace or join via invite
+    // Choose: create new vault or join via invite
     let action = if invite_link_arg.is_some() {
         1 // import
     } else {
@@ -108,8 +108,8 @@ pub async fn run(invite_link_arg: Option<String>) -> Result<()> {
         Select::new()
             .with_prompt(format!("  {}", style("Action").bold()))
             .items(&[
-                "Create a new workspace",
-                "Join an existing workspace (invite link)",
+                "Create a new vault",
+                "Join an existing vault (invite link)",
             ])
             .default(0)
             .interact()
@@ -138,22 +138,22 @@ pub async fn run(invite_link_arg: Option<String>) -> Result<()> {
         let payload = parse_invite(&invite_link)?;
 
         let pb = spinner(&format!(
-            "Connecting to workspace '{}'…",
-            payload.workspace.name
+            "Connecting to vault '{}'…",
+            payload.vault.name
         ));
-        let store = Store::new(&payload.workspace.id, &config.member_id, &payload.storage)?;
+        let store = Store::new(&payload.vault.id, &config.member_id, &payload.storage)?;
         let mut doc = store.pull().await?;
         done(pb, "Connected");
 
         let private_key =
-            derive_private_key(&passphrase, &payload.workspace.id, &config.member_id)?;
+            derive_private_key(&passphrase, &payload.vault.id, &config.member_id)?;
         let public_key = get_public_key(&private_key);
         let signing_key = derive_signing_key(&private_key);
         let signing_public_key = B64.encode(signing_key.verifying_key().to_bytes());
 
-        config.workspaces.push(WorkspaceConfig {
-            id: payload.workspace.id.clone(),
-            name: payload.workspace.name.clone(),
+        config.vaults.push(VaultConfig {
+            id: payload.vault.id.clone(),
+            name: payload.vault.name.clone(),
             storage: payload.storage,
         });
         write_config(&config).await?;
@@ -181,23 +181,23 @@ pub async fn run(invite_link_arg: Option<String>) -> Result<()> {
         println!(
             "  {} Joined {}",
             style("✓").green().bold(),
-            style(&payload.workspace.name).cyan().bold(),
+            style(&payload.vault.name).cyan().bold(),
         );
         println!(
             "  {} An existing member needs to sync and grant you access.",
             style("i").dim(),
         );
     } else {
-        // Create new workspace
+        // Create new vault
         println!(
             "  {} {}",
             style("→").cyan(),
-            style("Name your workspace.").bold()
+            style("Name your vault.").bold()
         );
         println!();
 
-        let workspace_name: String = Input::new()
-            .with_prompt(format!("  {}", style("Workspace name").bold()))
+        let vault_name: String = Input::new()
+            .with_prompt(format!("  {}", style("Vault name").bold()))
             .interact_text()
             .map_err(|e| lib::error::Error::Other(e.to_string()))?;
 
@@ -210,22 +210,22 @@ pub async fn run(invite_link_arg: Option<String>) -> Result<()> {
         println!();
 
         let storage_config = collect_storage_config()?;
-        let workspace_id = Uuid::now_v7().to_string();
+        let vault_id = Uuid::now_v7().to_string();
 
-        let store = Store::new(&workspace_id, &config.member_id, &storage_config)?;
+        let store = Store::new(&vault_id, &config.member_id, &storage_config)?;
 
-        config.workspaces.push(WorkspaceConfig {
-            id: workspace_id.clone(),
-            name: workspace_name.clone(),
+        config.vaults.push(VaultConfig {
+            id: vault_id.clone(),
+            name: vault_name.clone(),
             storage: storage_config,
         });
         write_config(&config).await?;
 
-        let pb = spinner("Initializing workspace…");
+        let pb = spinner("Initializing vault…");
         let mut doc = store.pull().await?;
         done(pb, "Storage ready");
 
-        let private_key = derive_private_key(&passphrase, &workspace_id, &config.member_id)?;
+        let private_key = derive_private_key(&passphrase, &vault_id, &config.member_id)?;
         let public_key = get_public_key(&private_key);
         let signing_key = derive_signing_key(&private_key);
         let signing_public_key = B64.encode(signing_key.verifying_key().to_bytes());
@@ -240,8 +240,8 @@ pub async fn run(invite_link_arg: Option<String>) -> Result<()> {
         );
 
         let mut state: EnviDocument = hydrate(&doc)?;
-        state.id = workspace_id;
-        state.name = workspace_name.clone();
+        state.id = vault_id;
+        state.name = vault_name.clone();
         state.members.insert(
             config.member_id.clone(),
             Member {
@@ -261,9 +261,9 @@ pub async fn run(invite_link_arg: Option<String>) -> Result<()> {
 
         println!();
         println!(
-            "  {} Workspace {} created!",
+            "  {} Vault {} created!",
             style("✓").green().bold(),
-            style(&workspace_name).cyan().bold(),
+            style(&vault_name).cyan().bold(),
         );
         println!(
             "  {} Run {} to manage your secrets.",

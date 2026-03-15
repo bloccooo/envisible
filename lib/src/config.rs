@@ -4,7 +4,7 @@ use serde::{Deserialize, Serialize};
 use std::path::PathBuf;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct WorkspaceConfig {
+pub struct VaultConfig {
     pub id: String,
     pub name: String,
     pub storage: StorageConfig,
@@ -15,7 +15,8 @@ pub struct EnviConfig {
     pub version: String,
     pub member_name: String,
     pub member_id: String,
-    pub workspaces: Vec<WorkspaceConfig>,
+    #[serde(alias = "workspaces")]
+    pub vaults: Vec<VaultConfig>,
 }
 
 fn config_path() -> PathBuf {

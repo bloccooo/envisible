@@ -15,8 +15,8 @@ use lib::{
 };
 use std::collections::HashMap;
 
-fn make_member(id: &str, passphrase: &str, workspace_id: &str, dek: &[u8; 32]) -> Member {
-    let private_key = derive_private_key(passphrase, workspace_id, id).unwrap();
+fn make_member(id: &str, passphrase: &str, vault_id: &str, dek: &[u8; 32]) -> Member {
+    let private_key = derive_private_key(passphrase, vault_id, id).unwrap();
     let public_key = get_public_key(&private_key);
     let public_key_b64 = B64.encode(public_key);
     let signing_key = derive_signing_key(&private_key);
@@ -33,10 +33,10 @@ fn make_member(id: &str, passphrase: &str, workspace_id: &str, dek: &[u8; 32]) -
     }
 }
 
-const WS_ID: &str = "test-workspace-id";
+const WS_ID: &str = "test-vault-id";
 
-/// Build a two-member workspace.
-fn two_member_workspace() -> (AutoCommit, [u8; 32]) {
+/// Build a two-member vault.
+fn two_member_vault() -> (AutoCommit, [u8; 32]) {
     let dek = generate_dek();
     let m1 = make_member("member-one-id", "pass-m1", WS_ID, &dek);
     let m2 = make_member("member-two-id", "pass-m2", WS_ID, &dek);
@@ -47,10 +47,10 @@ fn two_member_workspace() -> (AutoCommit, [u8; 32]) {
 
     let state = EnviDocument {
         id: WS_ID.to_string(),
-        name: "Two Member Workspace".to_string(),
+        name: "Two Member Vault".to_string(),
         doc_version: 1,
         members,
-        namespaces: HashMap::new(),
+
         secrets: HashMap::new(),
         document_signature: String::new(),
     };
@@ -116,7 +116,7 @@ fn rotate_dek_member_can_still_unlock() {
 
 #[test]
 fn remove_member_removes_them_from_document() {
-    let (mut doc, dek) = two_member_workspace();
+    let (mut doc, dek) = two_member_vault();
     remove_member(&mut doc, &dek, "member-two-id").unwrap();
 
     let private_key = derive_private_key("pass-m2", WS_ID, "member-two-id").unwrap();
@@ -128,7 +128,7 @@ fn remove_member_removes_them_from_document() {
 
 #[test]
 fn remove_member_rotates_dek_so_removed_member_loses_access() {
-    let (mut doc, old_dek) = two_member_workspace();
+    let (mut doc, old_dek) = two_member_vault();
     add_secret(
         &mut doc,
         &old_dek,

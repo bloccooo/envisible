@@ -4,16 +4,19 @@ use automerge::AutoCommit;
 use autosurgeon::reconcile;
 use base64::{engine::general_purpose::STANDARD as B64, Engine};
 use lib::{
-    crypto::{compute_key_mac, derive_private_key, derive_signing_key, generate_dek, get_public_key, wrap_dek},
+    crypto::{
+        compute_key_mac, derive_private_key, derive_signing_key, generate_dek, get_public_key,
+        wrap_dek,
+    },
     types::{EnviDocument, Member},
 };
 use std::collections::HashMap;
 
 pub const PASSPHRASE: &str = "test-passphrase";
-pub const WORKSPACE_ID: &str = "test-workspace-id";
+pub const VAULT_ID: &str = "test-vault-id";
 pub const MEMBER_ID: &str = "test-member-id";
 
-pub struct Workspace {
+pub struct Vault {
     pub doc: AutoCommit,
     pub dek: [u8; 32],
     pub private_key: [u8; 32],
@@ -21,9 +24,9 @@ pub struct Workspace {
     pub member_id: String,
 }
 
-/// Build an in-memory workspace with one fully-active member.
-pub fn setup() -> Workspace {
-    let private_key = derive_private_key(PASSPHRASE, WORKSPACE_ID, MEMBER_ID).unwrap();
+/// Build an in-memory vault with one fully-active member.
+pub fn setup() -> Vault {
+    let private_key = derive_private_key(PASSPHRASE, VAULT_ID, MEMBER_ID).unwrap();
     let public_key = get_public_key(&private_key);
     let public_key_b64 = B64.encode(public_key);
     let signing_key = derive_signing_key(&private_key);
@@ -47,11 +50,10 @@ pub fn setup() -> Workspace {
     );
 
     let state = EnviDocument {
-        id: WORKSPACE_ID.to_string(),
-        name: "Test Workspace".to_string(),
+        id: VAULT_ID.to_string(),
+        name: "Test Vault".to_string(),
         doc_version: 1,
         members,
-        namespaces: HashMap::new(),
         secrets: HashMap::new(),
         document_signature: String::new(),
     };
@@ -59,5 +61,11 @@ pub fn setup() -> Workspace {
     let mut doc = AutoCommit::new();
     reconcile(&mut doc, &state).unwrap();
 
-    Workspace { doc, dek, private_key, signing_key, member_id: MEMBER_ID.to_string() }
+    Vault {
+        doc,
+        dek,
+        private_key,
+        signing_key,
+        member_id: MEMBER_ID.to_string(),
+    }
 }

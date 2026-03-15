@@ -71,7 +71,7 @@ pub struct App {
     pub session: Session,
     pub invite_link: String,
     pub account_name: String,
-    pub workspace_name: String,
+    pub vault_name: String,
     pub storage_backend: String,
 
     pub mode: Mode,
@@ -135,7 +135,7 @@ impl App {
         session: Session,
         invite_link: String,
         account_name: String,
-        workspace_name: String,
+        vault_name: String,
         storage_backend: String,
     ) -> Result<Self> {
         let store = Arc::new(store);
@@ -145,7 +145,7 @@ impl App {
             session,
             invite_link,
             account_name,
-            workspace_name,
+            vault_name,
             storage_backend,
             mode: Mode::List,
             focus: Focus::Secrets,
