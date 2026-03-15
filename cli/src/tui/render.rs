@@ -144,9 +144,9 @@ fn render_footer(f: &mut Frame, app: &App, area: Rect) {
             if app.editing_tag.is_some() {
                 "[Space] Toggle  [Enter] Save  [Esc] Cancel"
             } else if app.show_values {
-                "[n] New  [e] Edit  [d] Delete  [y] Copy value  [v] Hide values  [Tab] Switch  [q] Quit"
+                "[n] New  [e] Edit  [d] Delete  [c] Copy value  [v] Hide values  [Tab] Switch  [q] Quit"
             } else {
-                "[n] New  [e] Edit  [d] Delete  [y] Copy value  [v] Show values  [Tab] Switch  [q] Quit"
+                "[n] New  [e] Edit  [d] Delete  [c] Copy value  [v] Show values  [Tab] Switch  [q] Quit"
             }
         }
         Focus::Tags => "[n] New  [e] Rename  [s] Secrets  [d] Delete  [Tab] Switch  [q] Quit",

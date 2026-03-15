@@ -571,7 +571,7 @@ impl App {
                     self.confirming_rotate = true;
                 }
             }
-            KeyCode::Char('y') => {
+            KeyCode::Char('c') => {
                 if self.focus == Focus::Secrets {
                     if let Some(sec) = self.secrets.get(self.sec_idx) {
                         let value = sec.value.clone();
