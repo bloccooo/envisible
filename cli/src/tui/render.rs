@@ -41,14 +41,20 @@ fn render_list(f: &mut Frame, app: &App) {
         .constraints([Constraint::Min(0), Constraint::Length(8)])
         .split(main_chunks[1]);
 
-    // Secrets (left) | Tags (right)
+    // Secrets (left) | Tags (right, hidden when no secrets)
     let pane_chunks = Layout::default()
         .direction(Direction::Horizontal)
-        .constraints([Constraint::Percentage(75), Constraint::Percentage(25)])
+        .constraints(if app.secrets.is_empty() {
+            vec![Constraint::Percentage(100), Constraint::Percentage(0)]
+        } else {
+            vec![Constraint::Percentage(75), Constraint::Percentage(25)]
+        })
         .split(body_chunks[0]);
 
     render_secrets(f, app, pane_chunks[0]);
-    render_tags(f, app, pane_chunks[1]);
+    if !app.secrets.is_empty() {
+        render_tags(f, app, pane_chunks[1]);
+    }
     render_members(f, app, body_chunks[1]);
 
     render_footer(f, app, main_chunks[2]);
@@ -341,6 +347,17 @@ fn render_secrets(f: &mut Frame, app: &App, area: Rect) {
         .title(title)
         .borders(Borders::ALL)
         .border_style(border_style);
+
+    if app.secrets.is_empty() {
+        let placeholder = Paragraph::new(Span::styled(
+            "press n to add a new secret",
+            Style::default().fg(Color::DarkGray),
+        ))
+        .block(block)
+        .alignment(ratatui::layout::Alignment::Left);
+        f.render_widget(placeholder, area);
+        return;
+    }
 
     let table = Table::new(rows, widths)
         .header(header)
