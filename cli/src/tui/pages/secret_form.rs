@@ -11,8 +11,8 @@ use ratatui::{
 };
 use tokio::sync::mpsc::Sender;
 
-use crate::{
-    actions::{Actions, Route},
+use crate::tui::{
+    actions::{Actions, DocMutation, Route},
     component::{Component, EventResult},
     components::textarea::{TextAreaComponent, TextAreaEvent},
     state::State,
@@ -58,7 +58,12 @@ impl SecretFormPage {
         }
     }
 
-    pub fn new_edit(actions_tx: Sender<Actions>, state: Arc<State>, id: String, initial_values: Vec<String>) -> Self {
+    pub fn new_edit(
+        actions_tx: Sender<Actions>,
+        state: Arc<State>,
+        id: String,
+        initial_values: Vec<String>,
+    ) -> Self {
         let first = initial_values.first().cloned().unwrap_or_default();
         let cursor = first.chars().count();
         let mut textarea = TextAreaComponent::new();
@@ -95,7 +100,11 @@ impl SecretFormPage {
             self.field_input.clone()
         };
         let next_idx = self.field_idx + 1;
-        let next_initial = self.initial_values.get(next_idx).cloned().unwrap_or_default();
+        let next_initial = self
+            .initial_values
+            .get(next_idx)
+            .cloned()
+            .unwrap_or_default();
         self.collected_values.push(value);
         self.field_idx = next_idx;
         self.field_input = next_initial.clone();
@@ -104,7 +113,9 @@ impl SecretFormPage {
     }
 
     fn go_back_field(&mut self) {
-        if self.field_idx == 0 { return; }
+        if self.field_idx == 0 {
+            return;
+        }
         let prev_idx = self.field_idx - 1;
         let prev_value = self.collected_values.pop().unwrap_or_default();
         self.field_idx = prev_idx;
@@ -124,12 +135,27 @@ impl SecretFormPage {
         let value = all.get(1).cloned().unwrap_or_default();
         let description = all.get(2).cloned().unwrap_or_default();
         let tags = split_tags(all.get(3).cloned().unwrap_or_default().as_str());
-        let new_state = if let Some(id) = &self.editing_id.clone() {
-            (*self.state).clone().with_secret_updated(id, name, value, description, tags)
+
+        let mutation = if let Some(id) = self.editing_id.clone() {
+            DocMutation::UpdateSecret {
+                id,
+                name,
+                value,
+                description,
+                tags,
+            }
         } else {
-            (*self.state).clone().with_secret_added(name, value, description, tags)
+            DocMutation::AddSecret {
+                name,
+                value,
+                description,
+                tags,
+            }
         };
-        let _ = self.actions_tx.send(Actions::SetState(Arc::new(new_state))).await;
+        let _ = self
+            .actions_tx
+            .send(Actions::ApplyMutation(mutation, None))
+            .await;
         let _ = self.actions_tx.send(Actions::NavigateTo(Route::Home)).await;
     }
 
@@ -139,20 +165,26 @@ impl SecretFormPage {
             self.tag_ac_idx = None;
             return;
         }
-        let current_token = self.field_input
+        let current_token = self
+            .field_input
             .split(',')
             .last()
             .map(|s| s.trim().to_lowercase())
             .unwrap_or_default();
-        let entered: std::collections::HashSet<String> = self.field_input
+        let entered: std::collections::HashSet<String> = self
+            .field_input
             .split(',')
             .map(|s| s.trim().to_lowercase())
             .filter(|s| !s.is_empty())
             .collect();
-        self.tag_ac_matches = self.state.tags().iter()
+        self.tag_ac_matches = self
+            .state
+            .tags()
+            .iter()
             .filter(|t| {
                 let tl = t.to_lowercase();
-                !entered.contains(&tl) && (current_token.is_empty() || tl.starts_with(&current_token))
+                !entered.contains(&tl)
+                    && (current_token.is_empty() || tl.starts_with(&current_token))
             })
             .cloned()
             .collect();
@@ -180,8 +212,16 @@ impl SecretFormPage {
 
     fn handle_text_input(&mut self, key: KeyEvent) {
         match key.code {
-            KeyCode::Left => { if self.cursor > 0 { self.cursor -= 1; } }
-            KeyCode::Right => { if self.cursor < self.field_input.chars().count() { self.cursor += 1; } }
+            KeyCode::Left => {
+                if self.cursor > 0 {
+                    self.cursor -= 1;
+                }
+            }
+            KeyCode::Right => {
+                if self.cursor < self.field_input.chars().count() {
+                    self.cursor += 1;
+                }
+            }
             KeyCode::Home => self.cursor = 0,
             KeyCode::End => self.cursor = self.field_input.chars().count(),
             KeyCode::Backspace => {
@@ -228,26 +268,43 @@ impl SecretFormPage {
         for (i, (label, is_secret)) in SECRET_FIELDS.iter().enumerate() {
             if i < self.field_idx {
                 let value = self.collected_values.get(i).cloned().unwrap_or_default();
-                let display = if *is_secret { "••••••••".to_string() } else { value };
+                let display = if *is_secret {
+                    "••••••••".to_string()
+                } else {
+                    value
+                };
                 lines.push(Line::from(vec![
-                    Span::styled(format!("  {} ", label), Style::default().fg(Color::DarkGray)),
+                    Span::styled(
+                        format!("  {} ", label),
+                        Style::default().fg(Color::DarkGray),
+                    ),
                     Span::styled(display, Style::default().fg(Color::Green)),
                 ]));
             } else if i == self.field_idx {
                 lines.push(Line::from(vec![Span::styled(
                     format!("▶ {} ", label),
-                    Style::default().fg(Color::Cyan).add_modifier(Modifier::BOLD),
+                    Style::default()
+                        .fg(Color::Cyan)
+                        .add_modifier(Modifier::BOLD),
                 )]));
 
                 let input = &self.field_input;
-                let display = if *is_secret { "•".repeat(input.chars().count()) } else { input.clone() };
+                let display = if *is_secret {
+                    "•".repeat(input.chars().count())
+                } else {
+                    input.clone()
+                };
                 let cursor_pos = self.cursor;
                 let before: String = if *is_secret {
                     "•".repeat(cursor_pos)
                 } else {
                     input.chars().take(cursor_pos).collect()
                 };
-                let at = display.chars().nth(cursor_pos).map(|c| c.to_string()).unwrap_or_else(|| " ".to_string());
+                let at = display
+                    .chars()
+                    .nth(cursor_pos)
+                    .map(|c| c.to_string())
+                    .unwrap_or_else(|| " ".to_string());
                 let after: String = if *is_secret {
                     "•".repeat(input.chars().count().saturating_sub(cursor_pos + 1))
                 } else {
@@ -261,19 +318,24 @@ impl SecretFormPage {
                     Span::raw(after),
                 ]));
 
-                // Tag autocomplete dropdown (tags field only).
                 if i == 3 && !self.tag_ac_matches.is_empty() {
                     const MAX_VISIBLE: usize = 5;
                     for (j, tag) in self.tag_ac_matches.iter().take(MAX_VISIBLE).enumerate() {
                         if self.tag_ac_idx == Some(j) {
                             lines.push(Line::from(vec![
                                 Span::raw("  "),
-                                Span::styled(format!("▶ {tag}"), Style::default().bg(Color::Cyan).fg(Color::Black)),
+                                Span::styled(
+                                    format!("▶ {tag}"),
+                                    Style::default().bg(Color::Cyan).fg(Color::Black),
+                                ),
                             ]));
                         } else {
                             lines.push(Line::from(vec![
                                 Span::raw("  "),
-                                Span::styled(format!("  {tag}"), Style::default().fg(Color::DarkGray)),
+                                Span::styled(
+                                    format!("  {tag}"),
+                                    Style::default().fg(Color::DarkGray),
+                                ),
                             ]));
                         }
                     }
@@ -317,16 +379,25 @@ impl SecretFormPage {
         for i in 0..self.field_idx {
             let (label, is_secret) = SECRET_FIELDS[i];
             let value = self.collected_values.get(i).cloned().unwrap_or_default();
-            let display = if is_secret { "••••••••".to_string() } else { value };
+            let display = if is_secret {
+                "••••••••".to_string()
+            } else {
+                value
+            };
             header_lines.push(Line::from(vec![
-                Span::styled(format!("  {} ", label), Style::default().fg(Color::DarkGray)),
+                Span::styled(
+                    format!("  {} ", label),
+                    Style::default().fg(Color::DarkGray),
+                ),
                 Span::styled(display, Style::default().fg(Color::Green)),
             ]));
             header_lines.push(Line::from(""));
         }
         header_lines.push(Line::from(vec![Span::styled(
             format!("▶ {} ", SECRET_FIELDS[self.field_idx].0),
-            Style::default().fg(Color::Cyan).add_modifier(Modifier::BOLD),
+            Style::default()
+                .fg(Color::Cyan)
+                .add_modifier(Modifier::BOLD),
         )]));
         frame.render_widget(Paragraph::new(header_lines), chunks[0]);
 
@@ -372,20 +443,20 @@ impl Component for SecretFormPage {
                     TextAreaEvent::Changed => {}
                 }
             } else {
-                // Tag autocomplete intercept on the tags field.
                 let on_tags_field = self.field_idx == 3;
                 if on_tags_field && !self.tag_ac_matches.is_empty() {
                     match key.code {
                         KeyCode::Down => {
                             self.tag_ac_idx = Some(
-                                self.tag_ac_idx.map_or(0, |i| (i + 1).min(self.tag_ac_matches.len() - 1)),
+                                self.tag_ac_idx
+                                    .map_or(0, |i| (i + 1).min(self.tag_ac_matches.len() - 1)),
                             );
-                            let _ = self.actions_tx.send(Actions::Render).await;
                             return EventResult::Consumed;
                         }
                         KeyCode::Up if self.tag_ac_idx.is_some() => {
-                            self.tag_ac_idx = self.tag_ac_idx.and_then(|i| if i == 0 { None } else { Some(i - 1) });
-                            let _ = self.actions_tx.send(Actions::Render).await;
+                            self.tag_ac_idx =
+                                self.tag_ac_idx
+                                    .and_then(|i| if i == 0 { None } else { Some(i - 1) });
                             return EventResult::Consumed;
                         }
                         KeyCode::Enter if self.tag_ac_idx.is_some() => {
@@ -393,10 +464,11 @@ impl Component for SecretFormPage {
                             self.insert_ac_tag(&selected);
                             self.tag_ac_idx = None;
                             self.update_tag_ac();
-                            let _ = self.actions_tx.send(Actions::Render).await;
                             return EventResult::Consumed;
                         }
-                        _ => { self.tag_ac_idx = None; }
+                        _ => {
+                            self.tag_ac_idx = None;
+                        }
                     }
                 }
 
@@ -417,11 +489,14 @@ impl Component for SecretFormPage {
                 }
             }
         }
-        let _ = self.actions_tx.send(Actions::Render).await;
+
         EventResult::Consumed
     }
 }
 
 fn split_tags(s: &str) -> Vec<String> {
-    s.split(',').map(|t| t.trim().to_string()).filter(|t| !t.is_empty()).collect()
+    s.split(',')
+        .map(|t| t.trim().to_string())
+        .filter(|t| !t.is_empty())
+        .collect()
 }

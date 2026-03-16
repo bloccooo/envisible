@@ -12,7 +12,10 @@ use ratatui::{
 
 use lib::storage::StorageConfig;
 
-use crate::{component::{Component, EventResult}, state::State};
+use crate::tui::{
+    component::{Component, EventResult},
+    state::State,
+};
 
 fn storage_backend_label(config: &StorageConfig) -> &'static str {
     match config {

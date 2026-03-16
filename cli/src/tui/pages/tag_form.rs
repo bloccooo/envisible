@@ -11,16 +11,14 @@ use ratatui::{
 };
 use tokio::sync::mpsc::Sender;
 
-use crate::{
-    actions::{Actions, Route},
+use crate::tui::{
+    actions::{Actions, DocMutation, Route},
     component::{Component, EventResult},
     state::State,
 };
 
 pub struct TagFormPage {
     actions_tx: Sender<Actions>,
-    state: Arc<State>,
-    /// `None` = new tag, `Some(old_name)` = editing an existing tag.
     editing_tag: Option<String>,
     field_input: String,
     cursor: usize,
@@ -28,10 +26,9 @@ pub struct TagFormPage {
 }
 
 impl TagFormPage {
-    pub fn new(actions_tx: Sender<Actions>, state: Arc<State>) -> Self {
+    pub fn new(actions_tx: Sender<Actions>, _state: Arc<State>) -> Self {
         Self {
             actions_tx,
-            state,
             editing_tag: None,
             field_input: String::new(),
             cursor: 0,
@@ -39,11 +36,10 @@ impl TagFormPage {
         }
     }
 
-    pub fn new_edit(actions_tx: Sender<Actions>, state: Arc<State>, old_name: String) -> Self {
+    pub fn new_edit(actions_tx: Sender<Actions>, _state: Arc<State>, old_name: String) -> Self {
         let cursor = old_name.chars().count();
         Self {
             actions_tx,
-            state,
             editing_tag: Some(old_name.clone()),
             field_input: old_name,
             cursor,
@@ -58,15 +54,23 @@ impl TagFormPage {
             return;
         }
         if let Some(old) = self.editing_tag.clone() {
-            // Rename: update all secrets that carry the old tag name.
             if new_name != old {
-                let new_state = Arc::new((*self.state).clone().with_tag_renamed(&old, &new_name));
-                let _ = self.actions_tx.send(Actions::SetState(new_state)).await;
+                let _ = self
+                    .actions_tx
+                    .send(Actions::ApplyMutation(
+                        DocMutation::RenameTag { old, new_name },
+                        None,
+                    ))
+                    .await;
+            } else {
+                let _ = self.actions_tx.send(Actions::NavigateTo(Route::Home)).await;
             }
-            let _ = self.actions_tx.send(Actions::NavigateTo(Route::Home)).await;
         } else {
-            // New tag: open home in tag-assignment mode so the user can attach it to secrets.
-            let _ = self.actions_tx.send(Actions::NavigateTo(Route::HomeWithTagAssignment(new_name))).await;
+            // New tag: navigate home in tag-assignment mode
+            let _ = self
+                .actions_tx
+                .send(Actions::NavigateTo(Route::HomeWithTagAssignment(new_name)))
+                .await;
         }
     }
 }
@@ -82,14 +86,20 @@ impl Component for TagFormPage {
         let input = &self.field_input;
         let cursor_pos = self.cursor;
         let before: String = input.chars().take(cursor_pos).collect();
-        let at = input.chars().nth(cursor_pos).map(|c| c.to_string()).unwrap_or_else(|| " ".to_string());
+        let at = input
+            .chars()
+            .nth(cursor_pos)
+            .map(|c| c.to_string())
+            .unwrap_or_else(|| " ".to_string());
         let after: String = input.chars().skip(cursor_pos + 1).collect();
 
         let lines = vec![
             Line::from(""),
             Line::from(vec![Span::styled(
                 "▶ Name ",
-                Style::default().fg(Color::Cyan).add_modifier(Modifier::BOLD),
+                Style::default()
+                    .fg(Color::Cyan)
+                    .add_modifier(Modifier::BOLD),
             )]),
             Line::from(vec![
                 Span::raw("  "),
@@ -107,9 +117,7 @@ impl Component for TagFormPage {
         frame.render_widget(Paragraph::new(lines).block(block), area);
     }
 
-    async fn update(&mut self, state: Arc<State>) {
-        self.state = state;
-    }
+    async fn update(&mut self, _state: Arc<State>) {}
 
     async fn handle_event(&mut self, event: Event) -> EventResult {
         if let Event::Key(key) = event {
@@ -122,8 +130,16 @@ impl Component for TagFormPage {
                     self.submit().await;
                     return EventResult::Consumed;
                 }
-                KeyCode::Left => { if self.cursor > 0 { self.cursor -= 1; } }
-                KeyCode::Right => { if self.cursor < self.field_input.chars().count() { self.cursor += 1; } }
+                KeyCode::Left => {
+                    if self.cursor > 0 {
+                        self.cursor -= 1;
+                    }
+                }
+                KeyCode::Right => {
+                    if self.cursor < self.field_input.chars().count() {
+                        self.cursor += 1;
+                    }
+                }
                 KeyCode::Home => self.cursor = 0,
                 KeyCode::End => self.cursor = self.field_input.chars().count(),
                 KeyCode::Backspace => {
@@ -151,7 +167,7 @@ impl Component for TagFormPage {
                 _ => {}
             }
         }
-        let _ = self.actions_tx.send(Actions::Render).await;
+
         EventResult::Consumed
     }
 }

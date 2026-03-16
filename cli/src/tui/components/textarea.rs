@@ -7,14 +7,9 @@ use ratatui::{
     Frame,
 };
 
-/// Returned by [`TextAreaComponent::handle_key`] to tell the parent form
-/// whether focus should move away from this field.
 pub enum TextAreaEvent {
-    /// Normal edit — parent should re-render.
     Changed,
-    /// User pressed Up on the first row — parent should go to the previous field.
     NavigatePrev,
-    /// User pressed Down on the last row, or Tab — parent should advance to the next field.
     NavigateNext,
 }
 
@@ -35,12 +30,10 @@ impl TextAreaComponent {
         }
     }
 
-    /// Return the full content as a single string (newline-joined).
     pub fn value(&self) -> String {
         self.lines.join("\n")
     }
 
-    /// Replace the content with `s`, placing the cursor at the end.
     pub fn set_value(&mut self, s: &str) {
         self.lines = if s.is_empty() {
             vec![String::new()]
@@ -49,14 +42,6 @@ impl TextAreaComponent {
         };
         self.row = self.lines.len().saturating_sub(1);
         self.col = self.lines[self.row].chars().count();
-        self.scroll = 0;
-    }
-
-    /// Reset to empty.
-    pub fn reset(&mut self) {
-        self.lines = vec![String::new()];
-        self.row = 0;
-        self.col = 0;
         self.scroll = 0;
     }
 

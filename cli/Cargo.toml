@@ -9,7 +9,8 @@ path = "src/main.rs"
 
 [dependencies]
 lib = { path = "../lib" }
-tokio = { workspace = true, features = ["net"] }
+tokio = { workspace = true, features = ["net", "sync"] }
+async-trait = "0.1"
 serde = { workspace = true }
 serde_json = { workspace = true }
 thiserror = { workspace = true }

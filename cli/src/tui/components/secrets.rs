@@ -10,7 +10,7 @@ use ratatui::{
     Frame,
 };
 
-use crate::{
+use crate::tui::{
     component::{Component, EventResult},
     state::State,
 };
@@ -184,7 +184,12 @@ impl Component for SecretsComponent {
     }
 }
 
-fn scroll_indicators(selected: usize, total: usize, area_height: usize, overhead: usize) -> &'static str {
+fn scroll_indicators(
+    selected: usize,
+    total: usize,
+    area_height: usize,
+    overhead: usize,
+) -> &'static str {
     let visible = area_height.saturating_sub(overhead);
     if total <= visible {
         return "";

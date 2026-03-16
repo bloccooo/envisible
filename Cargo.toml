@@ -1,5 +1,5 @@
 [workspace]
-members = ["lib", "cli", "tui-v2"]
+members = ["lib", "cli"]
 resolver = "2"
 
 [workspace.package]

@@ -58,9 +58,7 @@ async fn main() {
     let result = match cli.command.unwrap_or(Command::Ui) {
         Command::Setup { invite } => commands::setup::run(invite).await,
         Command::Ui => commands::ui::run().await,
-        Command::Exec { tag, dry_run, cmd } => {
-            commands::run::run(tag, dry_run, cmd).await
-        }
+        Command::Exec { tag, dry_run, cmd } => commands::run::run(tag, dry_run, cmd).await,
         Command::ForceSync => commands::sync::run().await,
         Command::Logout => agent::run(false, true).await,
         Command::Wipe => commands::clear::run().await,

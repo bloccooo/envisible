@@ -9,7 +9,7 @@ use ratatui::{
     Frame,
 };
 
-use crate::{
+use crate::tui::{
     component::{Component, EventResult},
     state::State,
 };
@@ -22,7 +22,11 @@ pub struct TagsComponent {
 
 impl TagsComponent {
     pub fn new(state: Arc<State>) -> Self {
-        Self { state, tag_idx: 0, focused: false }
+        Self {
+            state,
+            tag_idx: 0,
+            focused: false,
+        }
     }
 }
 
@@ -42,7 +46,12 @@ impl Component for TagsComponent {
             .enumerate()
             .map(|(i, tag)| {
                 let is_selected = i == self.tag_idx && focused;
-                let count = self.state.secrets.iter().filter(|s| s.tags.contains(tag)).count();
+                let count = self
+                    .state
+                    .secrets
+                    .iter()
+                    .filter(|s| s.tags.contains(tag))
+                    .count();
                 let style = if is_selected {
                     Style::default().bg(Color::Cyan).fg(Color::Black)
                 } else {
@@ -100,7 +109,12 @@ impl Component for TagsComponent {
     }
 }
 
-fn scroll_indicators(selected: usize, total: usize, area_height: usize, overhead: usize) -> &'static str {
+fn scroll_indicators(
+    selected: usize,
+    total: usize,
+    area_height: usize,
+    overhead: usize,
+) -> &'static str {
     let visible = area_height.saturating_sub(overhead);
     if total <= visible {
         return "";

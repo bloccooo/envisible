@@ -4,15 +4,11 @@ use async_trait::async_trait;
 use crossterm::event::Event;
 use ratatui::{layout::Rect, Frame};
 
-use crate::state::State;
+use crate::tui::state::State;
 
-/// Returned by [`Component::handle_event`] to indicate whether the event was consumed.
-/// A `Consumed` result stops propagation — the parent will not handle the event.
 #[derive(Debug, PartialEq, Eq)]
 pub enum EventResult {
-    /// The event was handled. Parent should not process it further.
     Consumed,
-    /// The event was not handled. Parent may handle it.
     Ignored,
 }
 

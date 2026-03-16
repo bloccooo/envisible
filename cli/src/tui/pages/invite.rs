@@ -13,7 +13,7 @@ use tokio::sync::mpsc::Sender;
 
 use lib::invite::{generate_invite, VaultPayload};
 
-use crate::{
+use crate::tui::{
     actions::{Actions, Route},
     component::{Component, EventResult},
     state::State,
@@ -30,10 +30,16 @@ impl InvitePage {
     pub fn new(actions_tx: Sender<Actions>, state: Arc<State>) -> Self {
         let invite_token = generate_invite(
             &state.storage_config,
-            VaultPayload { id: state.vault_id.clone(), name: state.vault_name.clone() },
+            VaultPayload {
+                id: state.vault_id.clone(),
+                name: state.vault_name.clone(),
+            },
         )
         .unwrap_or_else(|_| "(error generating token)".to_string());
-        Self { actions_tx, invite_token }
+        Self {
+            actions_tx,
+            invite_token,
+        }
     }
 }
 
@@ -44,7 +50,9 @@ impl Component for InvitePage {
             Line::from(""),
             Line::from(vec![Span::styled(
                 "Invite Token",
-                Style::default().fg(Color::Cyan).add_modifier(Modifier::BOLD),
+                Style::default()
+                    .fg(Color::Cyan)
+                    .add_modifier(Modifier::BOLD),
             )]),
             Line::from(""),
             Line::from(vec![Span::styled(
@@ -73,7 +81,9 @@ impl Component for InvitePage {
             .border_style(Style::default().fg(Color::Cyan));
 
         frame.render_widget(
-            Paragraph::new(lines).block(block).wrap(Wrap { trim: false }),
+            Paragraph::new(lines)
+                .block(block)
+                .wrap(Wrap { trim: false }),
             area,
         );
     }

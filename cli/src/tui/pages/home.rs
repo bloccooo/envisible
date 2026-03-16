@@ -8,13 +8,11 @@ use ratatui::{
 };
 use tokio::sync::mpsc::Sender;
 
-use crate::{
-    actions::{Actions, Route},
+use crate::tui::{
+    actions::{Actions, DocMutation, Route},
     component::{Component, EventResult},
     components::{
-        header::HeaderComponent,
-        members::MembersComponent,
-        secrets::SecretsComponent,
+        header::HeaderComponent, members::MembersComponent, secrets::SecretsComponent,
         tags::TagsComponent,
     },
     state::State,
@@ -41,6 +39,8 @@ pub struct HomePage {
     member_to_delete: Option<String>,
     member_to_grant: Option<String>,
     confirming_rotate: bool,
+    // Clipboard
+    clipboard: Option<arboard::Clipboard>,
 }
 
 impl HomePage {
@@ -61,17 +61,21 @@ impl HomePage {
             member_to_delete: None,
             member_to_grant: None,
             confirming_rotate: false,
+            clipboard: arboard::Clipboard::new().ok(),
         };
-
-    
         page.sync_focus();
         page
     }
 
-    /// Return home in tag-assignment mode (used after creating a new tag).
-    pub fn new_with_tag_assignment(actions_tx: Sender<Actions>, state: Arc<State>, tag: String) -> Self {
+    pub fn new_with_tag_assignment(
+        actions_tx: Sender<Actions>,
+        state: Arc<State>,
+        tag: String,
+    ) -> Self {
         let mut page = Self::new(actions_tx, state.clone());
-        page.secrets.ts_selected_ids = state.secrets.iter()
+        page.secrets.ts_selected_ids = state
+            .secrets
+            .iter()
             .filter(|s| s.tags.contains(&tag))
             .map(|s| s.id.clone())
             .collect();
@@ -102,7 +106,10 @@ impl HomePage {
             }
             Focus::Tags => "[n] New  [e] Rename  [s] Assign  [d] Delete  [Tab] Switch  [q] Quit",
             Focus::Members => {
-                let pending = self.state.members.get(self.members.member_idx)
+                let pending = self
+                    .state
+                    .members
+                    .get(self.members.member_idx)
                     .map(|m| m.is_pending)
                     .unwrap_or(false);
                 if pending {
@@ -129,21 +136,17 @@ impl HomePage {
             Some(t) => t,
             None => return,
         };
-        let mut new_state = (*self.state).clone();
-        for secret in &mut new_state.secrets {
-            let has = self.secrets.ts_selected_ids.contains(&secret.id);
-            let had = secret.tags.contains(&tag);
-            if has != had {
-                if has {
-                    secret.tags.push(tag.clone());
-                } else {
-                    secret.tags.retain(|t| t != &tag);
-                }
-            }
-        }
-        let new_state = Arc::new(new_state);
-        self.state = new_state.clone();
-        let _ = self.actions_tx.send(Actions::SetState(new_state)).await;
+        let selected_ids = self.secrets.ts_selected_ids.clone();
+        let _ = self
+            .actions_tx
+            .send(Actions::ApplyMutation(
+                DocMutation::SaveTagAssignments { tag, selected_ids },
+                Some(
+                    "[n] New  [e] Rename  [s] Assign  [d] Delete  [Tab] Switch  [q] Quit"
+                        .to_string(),
+                ),
+            ))
+            .await;
     }
 }
 
@@ -187,7 +190,6 @@ impl Component for HomePage {
         self.secrets.update(state.clone()).await;
         self.tags.update(state.clone()).await;
         self.members.update(state).await;
-        let _ = self.actions_tx.send(Actions::Render).await;
     }
 
     async fn handle_event(&mut self, event: Event) -> EventResult {
@@ -203,14 +205,16 @@ impl Component for HomePage {
                     self.secrets.editing_tag = None;
                     self.secrets.ts_selected_ids.clear();
                     self.set_focus(Focus::Tags);
-                    self.send_hint("[n] New  [e] Rename  [s] Assign  [d] Delete  [Tab] Switch  [q] Quit").await;
                     return EventResult::Consumed;
                 }
                 KeyCode::Esc => {
                     self.secrets.editing_tag = None;
                     self.secrets.ts_selected_ids.clear();
                     self.set_focus(Focus::Tags);
-                    self.send_hint("[n] New  [e] Rename  [s] Assign  [d] Delete  [Tab] Switch  [q] Quit").await;
+                    self.send_hint(
+                        "[n] New  [e] Rename  [s] Assign  [d] Delete  [Tab] Switch  [q] Quit",
+                    )
+                    .await;
                     return EventResult::Consumed;
                 }
                 _ => {}
@@ -222,9 +226,16 @@ impl Component for HomePage {
             match key.code {
                 KeyCode::Char('y') => {
                     if let Some(tag) = self.tag_to_delete.take() {
-                        let new_state = Arc::new((*self.state).clone().with_tag_deleted(&tag));
-                        if self.tags.tag_idx > 0 { self.tags.tag_idx -= 1; }
-                        let _ = self.actions_tx.send(Actions::SetState(new_state)).await;
+                        if self.tags.tag_idx > 0 {
+                            self.tags.tag_idx -= 1;
+                        }
+                        let _ = self
+                            .actions_tx
+                            .send(Actions::ApplyMutation(
+                                DocMutation::DeleteTag { tag },
+                                Some(self.normal_hint().to_string()),
+                            ))
+                            .await;
                     }
                 }
                 KeyCode::Char('n') | KeyCode::Esc => {
@@ -241,9 +252,16 @@ impl Component for HomePage {
             match key.code {
                 KeyCode::Char('y') => {
                     if let Some(id) = self.secret_to_delete.take() {
-                        let new_state = Arc::new((*self.state).clone().with_secret_deleted(&id).with_footer_hint(self.normal_hint()));
-                        if self.secrets.sec_idx > 0 { self.secrets.sec_idx -= 1; }
-                        let _ = self.actions_tx.send(Actions::SetState(new_state)).await;
+                        if self.secrets.sec_idx > 0 {
+                            self.secrets.sec_idx -= 1;
+                        }
+                        let _ = self
+                            .actions_tx
+                            .send(Actions::ApplyMutation(
+                                DocMutation::DeleteSecret { id },
+                                Some(self.normal_hint().to_string()),
+                            ))
+                            .await;
                     }
                 }
                 KeyCode::Char('n') | KeyCode::Esc => {
@@ -260,12 +278,16 @@ impl Component for HomePage {
             match key.code {
                 KeyCode::Char('y') => {
                     if let Some(id) = self.member_to_delete.take() {
-                        let new_state = Arc::new(State {
-                            members: self.state.members.iter().filter(|m| m.id != id).cloned().collect(),
-                            ..(*self.state).clone().with_footer_hint(self.normal_hint())
-                        });
-                        if self.members.member_idx > 0 { self.members.member_idx -= 1; }
-                        let _ = self.actions_tx.send(Actions::SetState(new_state)).await;
+                        if self.members.member_idx > 0 {
+                            self.members.member_idx -= 1;
+                        }
+                        let _ = self
+                            .actions_tx
+                            .send(Actions::ApplyMutation(
+                                DocMutation::RemoveMember { id },
+                                Some(self.normal_hint().to_string()),
+                            ))
+                            .await;
                     }
                 }
                 KeyCode::Char('n') | KeyCode::Esc => {
@@ -277,10 +299,20 @@ impl Component for HomePage {
             return EventResult::Consumed;
         }
 
-        // Confirmation: DEK rotate (Phase 1: no-op).
+        // Confirmation: DEK rotate.
         if self.confirming_rotate {
             match key.code {
-                KeyCode::Char('y') | KeyCode::Char('n') | KeyCode::Esc => {
+                KeyCode::Char('y') => {
+                    self.confirming_rotate = false;
+                    let _ = self
+                        .actions_tx
+                        .send(Actions::ApplyMutation(
+                            DocMutation::RotateDek,
+                            Some(self.normal_hint().to_string()),
+                        ))
+                        .await;
+                }
+                KeyCode::Char('n') | KeyCode::Esc => {
                     self.confirming_rotate = false;
                     self.send_hint(self.normal_hint()).await;
                 }
@@ -294,11 +326,13 @@ impl Component for HomePage {
             match key.code {
                 KeyCode::Char('y') => {
                     if let Some(id) = self.member_to_grant.take() {
-                        let mut new_state = (*self.state).clone().with_footer_hint(self.normal_hint());
-                        if let Some(m) = new_state.members.iter_mut().find(|m| m.id == id) {
-                            m.is_pending = false;
-                        }
-                        let _ = self.actions_tx.send(Actions::SetState(Arc::new(new_state))).await;
+                        let _ = self
+                            .actions_tx
+                            .send(Actions::ApplyMutation(
+                                DocMutation::GrantMember { id },
+                                Some(self.normal_hint().to_string()),
+                            ))
+                            .await;
                     }
                 }
                 KeyCode::Char('n') | KeyCode::Esc => {
@@ -336,23 +370,35 @@ impl Component for HomePage {
             }
             KeyCode::Char('n') => match self.focus {
                 Focus::Secrets => {
-                    let _ = self.actions_tx.send(Actions::NavigateTo(Route::NewSecret)).await;
+                    let _ = self
+                        .actions_tx
+                        .send(Actions::NavigateTo(Route::NewSecret))
+                        .await;
                 }
                 Focus::Tags => {
-                    let _ = self.actions_tx.send(Actions::NavigateTo(Route::NewTag)).await;
+                    let _ = self
+                        .actions_tx
+                        .send(Actions::NavigateTo(Route::NewTag))
+                        .await;
                 }
                 Focus::Members => {}
             },
             KeyCode::Char('e') => match self.focus {
                 Focus::Secrets => {
                     if let Some(sec) = self.state.secrets.get(self.secrets.sec_idx) {
-                        let _ = self.actions_tx.send(Actions::NavigateTo(Route::EditSecret(sec.id.clone()))).await;
+                        let _ = self
+                            .actions_tx
+                            .send(Actions::NavigateTo(Route::EditSecret(sec.id.clone())))
+                            .await;
                     }
                 }
                 Focus::Tags => {
                     let tags = self.state.tags();
                     if let Some(tag) = tags.get(self.tags.tag_idx).cloned() {
-                        let _ = self.actions_tx.send(Actions::NavigateTo(Route::EditTag(tag))).await;
+                        let _ = self
+                            .actions_tx
+                            .send(Actions::NavigateTo(Route::EditTag(tag)))
+                            .await;
                     }
                 }
                 Focus::Members => {}
@@ -383,17 +429,31 @@ impl Component for HomePage {
                     }
                 }
             },
+            KeyCode::Char('c') => {
+                if self.focus == Focus::Secrets {
+                    if let Some(sec) = self.state.secrets.get(self.secrets.sec_idx) {
+                        let value = sec.value.clone();
+                        if let Some(cb) = &mut self.clipboard {
+                            let _ = cb.set_text(value);
+                        }
+                    }
+                }
+            }
             KeyCode::Char('s') => {
                 if self.focus == Focus::Tags {
                     let tags = self.state.tags();
                     if let Some(tag) = tags.get(self.tags.tag_idx).cloned() {
-                        self.secrets.ts_selected_ids = self.state.secrets.iter()
+                        self.secrets.ts_selected_ids = self
+                            .state
+                            .secrets
+                            .iter()
                             .filter(|s| s.tags.contains(&tag))
                             .map(|s| s.id.clone())
                             .collect();
                         self.secrets.editing_tag = Some(tag);
                         self.set_focus(Focus::Secrets);
-                        self.send_hint("[Space] Toggle  [Enter] Save  [Esc] Cancel").await;
+                        self.send_hint("[Space] Toggle  [Enter] Save  [Esc] Cancel")
+                            .await;
                     }
                 }
             }
@@ -411,12 +471,18 @@ impl Component for HomePage {
             KeyCode::Char('r') => {
                 if self.focus == Focus::Members {
                     self.confirming_rotate = true;
-                    self.send_warning("Rotate DEK? All secrets will be re-encrypted. [y] Yes  [n] No").await;
+                    self.send_warning(
+                        "Rotate DEK? All secrets will be re-encrypted. [y] Yes  [n] No",
+                    )
+                    .await;
                 }
             }
             KeyCode::Char('i') => {
                 if self.focus == Focus::Members {
-                    let _ = self.actions_tx.send(Actions::NavigateTo(Route::Invite)).await;
+                    let _ = self
+                        .actions_tx
+                        .send(Actions::NavigateTo(Route::Invite))
+                        .await;
                 }
             }
             _ => return EventResult::Ignored,

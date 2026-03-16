@@ -5,15 +5,12 @@ use crossterm::event::Event;
 use ratatui::layout::{Constraint, Direction, Layout};
 use tokio::sync::mpsc::Sender;
 
-use crate::{
+use crate::tui::{
     actions::{Actions, Route},
     component::{Component, EventResult},
     components::footer::FooterComponent,
     pages::{
-        home::HomePage,
-        invite::InvitePage,
-        secret_form::SecretFormPage,
-        tag_form::TagFormPage,
+        home::HomePage, invite::InvitePage, secret_form::SecretFormPage, tag_form::TagFormPage,
     },
     state::State,
 };
@@ -37,29 +34,59 @@ impl Router {
     pub fn navigate(&mut self, route: Route) {
         let hint = match &route {
             Route::Home | Route::HomeWithTagAssignment(_) => HomePage::DEFAULT_HINT,
-            Route::NewSecret | Route::EditSecret(_) => "[Tab] Next field  [Enter] Submit  [Esc] Cancel",
+            Route::NewSecret | Route::EditSecret(_) => {
+                "[Tab] Next field  [Enter] Submit  [Esc] Cancel"
+            }
             Route::NewTag | Route::EditTag(_) => "[Enter] Submit  [Esc] Cancel",
             Route::Invite => InvitePage::DEFAULT_HINT,
         };
         self.state = Arc::new((*self.state).clone().with_footer_hint(hint));
-        // Propagate hint update to main loop state.
-        let _ = self.actions_tx.try_send(Actions::SetState(self.state.clone()));
+        let _ = self
+            .actions_tx
+            .try_send(Actions::SetState(self.state.clone()));
 
         self.current_page = match route {
             Route::Home => Box::new(HomePage::new(self.actions_tx.clone(), self.state.clone())),
-            Route::NewSecret => Box::new(SecretFormPage::new(self.actions_tx.clone(), self.state.clone())),
+            Route::NewSecret => Box::new(SecretFormPage::new(
+                self.actions_tx.clone(),
+                self.state.clone(),
+            )),
             Route::EditSecret(id) => {
-                let values = self.state.secrets.iter()
+                let values = self
+                    .state
+                    .secrets
+                    .iter()
                     .find(|s| s.id == id)
-                    .map(|s| vec![s.name.clone(), s.value.clone(), s.description.clone(), s.tags.join(", ")])
+                    .map(|s| {
+                        vec![
+                            s.name.clone(),
+                            s.value.clone(),
+                            s.description.clone(),
+                            s.tags.join(", "),
+                        ]
+                    })
                     .unwrap_or_default();
-                Box::new(SecretFormPage::new_edit(self.actions_tx.clone(), self.state.clone(), id, values))
+                Box::new(SecretFormPage::new_edit(
+                    self.actions_tx.clone(),
+                    self.state.clone(),
+                    id,
+                    values,
+                ))
             }
-            Route::NewTag => Box::new(TagFormPage::new(self.actions_tx.clone(), self.state.clone())),
-            Route::EditTag(tag) => Box::new(TagFormPage::new_edit(self.actions_tx.clone(), self.state.clone(), tag)),
-            Route::HomeWithTagAssignment(tag) => {
-                Box::new(HomePage::new_with_tag_assignment(self.actions_tx.clone(), self.state.clone(), tag))
-            }
+            Route::NewTag => Box::new(TagFormPage::new(
+                self.actions_tx.clone(),
+                self.state.clone(),
+            )),
+            Route::EditTag(tag) => Box::new(TagFormPage::new_edit(
+                self.actions_tx.clone(),
+                self.state.clone(),
+                tag,
+            )),
+            Route::HomeWithTagAssignment(tag) => Box::new(HomePage::new_with_tag_assignment(
+                self.actions_tx.clone(),
+                self.state.clone(),
+                tag,
+            )),
             Route::Invite => Box::new(InvitePage::new(self.actions_tx.clone(), self.state.clone())),
         };
     }

@@ -1,4 +1,7 @@
-use lib::{error::{Error, Result}, store::cache_dir};
+use lib::{
+    error::{Error, Result},
+    store::cache_dir,
+};
 use rand::RngCore;
 use serde::{Deserialize, Serialize};
 use std::{
@@ -18,9 +21,7 @@ fn get_tty() -> String {
         if ptr.is_null() {
             return String::new();
         }
-        std::ffi::CStr::from_ptr(ptr)
-            .to_string_lossy()
-            .into_owned()
+        std::ffi::CStr::from_ptr(ptr).to_string_lossy().into_owned()
     }
 }
 
@@ -68,10 +69,23 @@ fn write_agent_file(info: &AgentInfo) -> std::io::Result<()> {
 #[derive(Serialize, Deserialize)]
 #[serde(tag = "type", rename_all = "snake_case")]
 enum Request {
-    Ping { token: String },
-    GetKey { token: String, vault_id: String, session_id: String },
-    StoreKey { token: String, vault_id: String, session_id: String, key: String },
-    Kill { token: String },
+    Ping {
+        token: String,
+    },
+    GetKey {
+        token: String,
+        vault_id: String,
+        session_id: String,
+    },
+    StoreKey {
+        token: String,
+        vault_id: String,
+        session_id: String,
+        key: String,
+    },
+    Kill {
+        token: String,
+    },
 }
 
 #[derive(Serialize, Deserialize)]
@@ -84,9 +98,27 @@ struct Response {
 }
 
 impl Response {
-    fn ok() -> Self { Self { ok: true, key: None, error: None } }
-    fn with_key(key: String) -> Self { Self { ok: true, key: Some(key), error: None } }
-    fn err(msg: &str) -> Self { Self { ok: false, key: None, error: Some(msg.to_string()) } }
+    fn ok() -> Self {
+        Self {
+            ok: true,
+            key: None,
+            error: None,
+        }
+    }
+    fn with_key(key: String) -> Self {
+        Self {
+            ok: true,
+            key: Some(key),
+            error: None,
+        }
+    }
+    fn err(msg: &str) -> Self {
+        Self {
+            ok: false,
+            key: None,
+            error: Some(msg.to_string()),
+        }
+    }
 }
 
 // --- Client ---
@@ -99,8 +131,15 @@ pub struct AgentClient {
 impl AgentClient {
     pub fn connect() -> Option<Self> {
         let info = read_agent_info()?;
-        let client = Self { addr: info.addr, token: info.token };
-        if client.ping() { Some(client) } else { None }
+        let client = Self {
+            addr: info.addr,
+            token: info.token,
+        };
+        if client.ping() {
+            Some(client)
+        } else {
+            None
+        }
     }
 
     /// Connect to a running agent, starting one if necessary.
@@ -138,9 +177,11 @@ impl AgentClient {
     }
 
     fn ping(&self) -> bool {
-        self.request(&Request::Ping { token: self.token.clone() })
-            .map(|r| r.ok)
-            .unwrap_or(false)
+        self.request(&Request::Ping {
+            token: self.token.clone(),
+        })
+        .map(|r| r.ok)
+        .unwrap_or(false)
     }
 
     pub fn get_key(&self, vault_id: &str) -> Option<[u8; 32]> {
@@ -149,7 +190,9 @@ impl AgentClient {
             vault_id: vault_id.to_string(),
             session_id: get_tty(),
         })?;
-        if !resp.ok { return None; }
+        if !resp.ok {
+            return None;
+        }
         let bytes = hex::decode(resp.key?).ok()?;
         bytes.try_into().ok()
     }
@@ -164,7 +207,9 @@ impl AgentClient {
     }
 
     pub fn kill(&self) {
-        let _ = self.request(&Request::Kill { token: self.token.clone() });
+        let _ = self.request(&Request::Kill {
+            token: self.token.clone(),
+        });
     }
 }
 
@@ -189,7 +234,10 @@ pub async fn run(serve: bool, kill: bool) -> Result<()> {
 
     // Check if already running
     if let Some(info) = read_agent_info() {
-        let client = AgentClient { addr: info.addr, token: info.token };
+        let client = AgentClient {
+            addr: info.addr,
+            token: info.token,
+        };
         if client.ping() {
             println!("envi agent already running");
             return Ok(());
@@ -211,7 +259,10 @@ pub async fn run(serve: bool, kill: bool) -> Result<()> {
     for _ in 0..20 {
         std::thread::sleep(Duration::from_millis(100));
         if let Some(info) = read_agent_info() {
-            let client = AgentClient { addr: info.addr, token: info.token };
+            let client = AgentClient {
+                addr: info.addr,
+                token: info.token,
+            };
             if client.ping() {
                 println!("envi agent started");
                 return Ok(());
@@ -228,7 +279,8 @@ async fn run_server() -> Result<()> {
     let listener = TcpListener::bind("127.0.0.1:0")
         .await
         .map_err(|e| Error::Other(e.to_string()))?;
-    let addr = listener.local_addr()
+    let addr = listener
+        .local_addr()
         .map_err(|e| Error::Other(e.to_string()))?
         .to_string();
 
@@ -236,10 +288,14 @@ async fn run_server() -> Result<()> {
     rand::thread_rng().fill_bytes(&mut token_bytes);
     let token = hex::encode(token_bytes);
 
-    write_agent_file(&AgentInfo { addr, token: token.clone() })
-        .map_err(|e| Error::Other(e.to_string()))?;
+    write_agent_file(&AgentInfo {
+        addr,
+        token: token.clone(),
+    })
+    .map_err(|e| Error::Other(e.to_string()))?;
 
-    let keys: Arc<Mutex<HashMap<(String, String), [u8; 32]>>> = Arc::new(Mutex::new(HashMap::new()));
+    let keys: Arc<Mutex<HashMap<(String, String), [u8; 32]>>> =
+        Arc::new(Mutex::new(HashMap::new()));
     let last_activity: Arc<Mutex<std::time::Instant>> =
         Arc::new(Mutex::new(std::time::Instant::now()));
 
@@ -293,12 +349,16 @@ async fn handle_connection(
     };
 
     let req_token = match &req {
-        Request::Ping { token } | Request::GetKey { token, .. }
-        | Request::StoreKey { token, .. } | Request::Kill { token } => token,
+        Request::Ping { token }
+        | Request::GetKey { token, .. }
+        | Request::StoreKey { token, .. }
+        | Request::Kill { token } => token,
     };
 
     if req_token != &token {
-        let _ = write_half.write_all(b"{\"ok\":false,\"error\":\"unauthorized\"}\n").await;
+        let _ = write_half
+            .write_all(b"{\"ok\":false,\"error\":\"unauthorized\"}\n")
+            .await;
         return;
     }
 
@@ -306,22 +366,31 @@ async fn handle_connection(
 
     let (resp, should_exit) = match req {
         Request::Ping { .. } => (Response::ok(), false),
-        Request::GetKey { vault_id, session_id, .. } => {
+        Request::GetKey {
+            vault_id,
+            session_id,
+            ..
+        } => {
             let keys = keys.lock().unwrap();
             match keys.get(&(vault_id, session_id)) {
                 Some(key) => (Response::with_key(hex::encode(key)), false),
                 None => (Response::err("not_found"), false),
             }
         }
-        Request::StoreKey { vault_id, session_id, key, .. } => {
-            match hex::decode(&key).ok().and_then(|b| b.try_into().ok()) {
-                Some(key_bytes) => {
-                    keys.lock().unwrap().insert((vault_id, session_id), key_bytes);
-                    (Response::ok(), false)
-                }
-                None => (Response::err("invalid_key"), false),
+        Request::StoreKey {
+            vault_id,
+            session_id,
+            key,
+            ..
+        } => match hex::decode(&key).ok().and_then(|b| b.try_into().ok()) {
+            Some(key_bytes) => {
+                keys.lock()
+                    .unwrap()
+                    .insert((vault_id, session_id), key_bytes);
+                (Response::ok(), false)
             }
-        }
+            None => (Response::err("invalid_key"), false),
+        },
         Request::Kill { .. } => (Response::ok(), true),
     };
 

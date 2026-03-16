@@ -20,7 +20,11 @@ pub fn prompt_new_passphrase() -> Result<String> {
             .map_err(|e| Error::Other(e.to_string()))?;
 
         if let Err(msg) = check_strength(&passphrase) {
-            eprintln!("  {} Passphrase too weak: {}", style("✗").red().bold(), style(msg).yellow());
+            eprintln!(
+                "  {} Passphrase too weak: {}",
+                style("✗").red().bold(),
+                style(msg).yellow()
+            );
             continue;
         }
 
@@ -30,7 +34,10 @@ pub fn prompt_new_passphrase() -> Result<String> {
             .map_err(|e| Error::Other(e.to_string()))?;
 
         if passphrase != confirmation {
-            eprintln!("  {} Passphrases do not match, try again.", style("✗").red().bold());
+            eprintln!(
+                "  {} Passphrases do not match, try again.",
+                style("✗").red().bold()
+            );
             continue;
         }
 
