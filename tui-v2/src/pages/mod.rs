@@ -1,3 +1,4 @@
 pub mod home;
-pub mod new_secret;
-pub mod test;
+pub mod invite;
+pub mod secret_form;
+pub mod tag_form;

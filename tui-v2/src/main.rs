@@ -24,7 +24,7 @@ async fn main() -> io::Result<()> {
 
     let mut terminal = Terminal::new(CrosstermBackend::new(stdout()))?;
 
-    let mut state = Arc::new(State::new());
+    let mut state = Arc::new(State::mock());
     let (tx, mut rx) = tokio::sync::mpsc::channel::<Actions>(32);
     let mut events = EventStream::new();
     let mut router = Router::new(tx.clone(), state.clone());
@@ -42,7 +42,7 @@ async fn main() -> io::Result<()> {
                     return Ok(());
                 }
                 Actions::Render => {
-                    terminal.draw(|frame| { let area = frame.area(); router.render(frame, area); })?;
+                    
                 }
                 Actions::SetState(new_state) => {
                     state = new_state;
@@ -50,9 +50,12 @@ async fn main() -> io::Result<()> {
                 }
                 Actions::NavigateTo(route) => {
                     router.navigate(route);
-                    terminal.draw(|frame| { let area = frame.area(); router.render(frame, area); })?;
+                    
                 }
+
             }
+
+            terminal.draw(|frame| { let area = frame.area(); router.render(frame, area); })?;
         }
 
         // Then block on the next terminal event

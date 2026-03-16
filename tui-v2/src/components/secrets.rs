@@ -1,21 +1,27 @@
+use std::collections::HashSet;
 use std::sync::Arc;
 
 use async_trait::async_trait;
 use crossterm::event::{Event, KeyCode};
 use ratatui::{
-    layout::Rect,
+    layout::{Constraint, Rect},
     style::{Color, Modifier, Style},
     widgets::{Block, Borders, Cell, Paragraph, Row, Table, TableState},
     Frame,
 };
 
-use crate::{component::{Component, EventResult}, state::State};
+use crate::{
+    component::{Component, EventResult},
+    state::State,
+};
 
 pub struct SecretsComponent {
     state: Arc<State>,
     pub sec_idx: usize,
     pub show_values: bool,
     pub focused: bool,
+    pub editing_tag: Option<String>,
+    pub ts_selected_ids: HashSet<String>,
 }
 
 impl SecretsComponent {
@@ -25,10 +31,15 @@ impl SecretsComponent {
             sec_idx: 0,
             show_values: false,
             focused: true,
+            editing_tag: None,
+            ts_selected_ids: HashSet::new(),
         }
     }
+}
 
-    fn render_area(&self, frame: &mut Frame, area: Rect) {
+#[async_trait]
+impl Component for SecretsComponent {
+    fn render(&self, frame: &mut Frame, area: Rect) {
         let focused = self.focused;
         let border_style = if focused {
             Style::default().fg(Color::Cyan)
@@ -37,7 +48,7 @@ impl SecretsComponent {
         };
 
         let secrets = &self.state.secrets;
-
+        let assigning = self.editing_tag.is_some();
         let value_col_width = (area.width.saturating_sub(4) as usize) * 40 / 100 - 2;
 
         let header = Row::new(
@@ -64,6 +75,14 @@ impl SecretsComponent {
                     "••••••••".to_string()
                 };
 
+                let name_cell = if assigning {
+                    let checked = self.ts_selected_ids.contains(&s.id);
+                    let checkbox = if checked { "[x] " } else { "[ ] " };
+                    Cell::from(format!("{checkbox}{}", s.name))
+                } else {
+                    Cell::from(s.name.clone())
+                };
+
                 let style = if is_selected {
                     Style::default().bg(Color::Cyan).fg(Color::Black)
                 } else {
@@ -71,7 +90,7 @@ impl SecretsComponent {
                 };
 
                 Row::new(vec![
-                    Cell::from(s.name.clone()),
+                    name_cell,
                     Cell::from(value_display),
                     Cell::from(s.tags.join(", ")),
                 ])
@@ -80,14 +99,20 @@ impl SecretsComponent {
             .collect();
 
         let widths = [
-            ratatui::layout::Constraint::Percentage(30),
-            ratatui::layout::Constraint::Percentage(40),
-            ratatui::layout::Constraint::Percentage(30),
+            Constraint::Percentage(30),
+            Constraint::Percentage(40),
+            Constraint::Percentage(30),
         ];
 
         let scroll = scroll_indicators(self.sec_idx, secrets.len(), area.height as usize, 3);
+        let title = if let Some(tag) = &self.editing_tag {
+            format!(" Secrets — assigning '{tag}' {scroll} ")
+        } else {
+            format!(" Secrets ({}) {scroll} ", secrets.len())
+        };
+
         let block = Block::default()
-            .title(format!(" Secrets ({}) {} ", secrets.len(), scroll))
+            .title(title)
             .borders(Borders::ALL)
             .border_style(border_style);
 
@@ -111,13 +136,6 @@ impl SecretsComponent {
 
         frame.render_stateful_widget(table, area, &mut table_state);
     }
-}
-
-#[async_trait]
-impl Component for SecretsComponent {
-    fn render(&self, frame: &mut Frame, area: Rect) {
-        self.render_area(frame, area);
-    }
 
     async fn update(&mut self, state: Arc<State>) {
         if !state.secrets.is_empty() {
@@ -127,6 +145,9 @@ impl Component for SecretsComponent {
     }
 
     async fn handle_event(&mut self, event: Event) -> EventResult {
+        if !self.focused {
+            return EventResult::Ignored;
+        }
         if let Event::Key(key) = event {
             match key.code {
                 KeyCode::Up => {
@@ -143,6 +164,17 @@ impl Component for SecretsComponent {
                 }
                 KeyCode::Char('v') => {
                     self.show_values = !self.show_values;
+                    return EventResult::Consumed;
+                }
+                KeyCode::Char(' ') if self.editing_tag.is_some() => {
+                    if let Some(secret) = self.state.secrets.get(self.sec_idx) {
+                        let id = secret.id.clone();
+                        if self.ts_selected_ids.contains(&id) {
+                            self.ts_selected_ids.remove(&id);
+                        } else {
+                            self.ts_selected_ids.insert(id);
+                        }
+                    }
                     return EventResult::Consumed;
                 }
                 _ => {}

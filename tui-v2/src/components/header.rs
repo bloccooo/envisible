@@ -10,7 +10,19 @@ use ratatui::{
     Frame,
 };
 
+use lib::storage::StorageConfig;
+
 use crate::{component::{Component, EventResult}, state::State};
+
+fn storage_backend_label(config: &StorageConfig) -> &'static str {
+    match config {
+        StorageConfig::Fs(_) => "Local FS",
+        StorageConfig::S3(_) => "S3",
+        StorageConfig::R2(_) => "R2",
+        StorageConfig::Webdav(_) => "WebDAV",
+        StorageConfig::Github(_) => "GitHub",
+    }
+}
 
 pub struct HeaderComponent {
     state: Arc<State>,
@@ -31,7 +43,7 @@ impl Component for HeaderComponent {
 
         let lines = vec![
             Line::from(Span::styled(
-                format!("bKey · v{VERSION}"),
+                format!("Envisible · v{VERSION}"),
                 Style::default()
                     .fg(Color::Cyan)
                     .add_modifier(Modifier::BOLD),
@@ -39,12 +51,13 @@ impl Component for HeaderComponent {
             Line::from(Span::raw(self.state.device_name.clone())),
             Line::from(Span::raw(format!(
                 "{} · {}",
-                self.state.vault_name, self.state.storage_backend
+                self.state.vault_name,
+                storage_backend_label(&self.state.storage_config),
             ))),
         ];
 
         let block = Block::default()
-            .title(" bKey ")
+            .title(" Envisible ")
             .borders(Borders::ALL)
             .border_style(Style::default().fg(Color::DarkGray));
 

@@ -3473,6 +3473,7 @@ dependencies = [
  "async-trait",
  "crossterm",
  "futures",
+ "lib",
  "ratatui",
  "tokio",
 ]
