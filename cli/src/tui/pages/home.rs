@@ -115,7 +115,7 @@ impl HomePage {
                 if pending {
                     "[g] Grant  [d] Remove  [i] Invite  [Tab] Switch  [q] Quit"
                 } else {
-                    "[d] Remove  [i] Invite  [r] Rotate DEK  [Tab] Switch  [q] Quit"
+                    "[d] Remove  [i] Invite  [Tab] Switch  [q] Quit"
                 }
             }
         }
