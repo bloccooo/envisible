@@ -6,6 +6,14 @@ A serverless secret manager for teams. Secrets are stored encrypted in a storage
 
 Also designed for the agentic era: credentials are scoped per terminal session, injected only into explicitly declared processes, and never accessible to tools running in other terminals — protecting against prompt injection attacks and curious agents.
 
+## Install
+
+```sh
+curl -fsSL https://blocco.studio/envi/install.sh | bash
+```
+
+Supports macOS (Apple Silicon & Intel) and Linux (x64). Installs to `/usr/local/bin/envi`.
+
 ## Encryption
 
 Secrets are encrypted with AES-256-GCM using a shared workspace key (DEK). Each member holds their own copy of the DEK, wrapped with a personal X25519 key pair derived from their passphrase, workspace ID, and a random member ID via Argon2id. The passphrase never leaves the device.
@@ -31,14 +39,6 @@ invite_mac = HMAC-SHA256(shared_secret, member_id || ":" || public_key || ":" ||
 
 This MAC and the nonce are stored in their pending member record. When the inviter reviews the request, they re-derive `invite_priv` from the nonce, recompute the shared secret, and verify the MAC — confirming that the public key in the record is exactly the one the invitee registered, and was not swapped in storage by an attacker.
 
-## Install
-
-```sh
-curl -fsSL https://blocco.studio/envi/install.sh | bash
-```
-
-Supports macOS (Apple Silicon & Intel) and Linux (x64). Installs to `/usr/local/bin/envi`.
-
 ## Commands
 
 ### `envi setup`
@@ -60,17 +60,17 @@ envi
 
 **Key bindings:**
 
-| Key   | Action                                |
-| ----- | ------------------------------------- |
-| `n`   | New item                              |
-| `e`   | Edit selected                         |
-| `d`   | Delete selected                       |
+| Key   | Action                                     |
+| ----- | ------------------------------------------ |
+| `n`   | New item                                   |
+| `e`   | Edit selected                              |
+| `d`   | Delete selected                            |
 | `s`   | Manage namespace secrets (namespaces pane) |
-| `g`   | Grant access to member (members pane) |
-| `i`   | Generate invite link (members pane)   |
-| `v`   | Toggle value visibility               |
-| `Tab` | Switch pane                           |
-| `q`   | Quit                                  |
+| `g`   | Grant access to member (members pane)      |
+| `i`   | Generate invite link (members pane)        |
+| `v`   | Toggle value visibility                    |
+| `Tab` | Switch pane                                |
+| `q`   | Quit                                       |
 
 ### `envi exec`
 
