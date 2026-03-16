@@ -360,13 +360,15 @@ impl Component for HomePage {
                 let _ = self.actions_tx.send(Actions::Exit).await;
             }
             KeyCode::Tab => {
-                let next = match self.focus {
-                    Focus::Secrets => Focus::Tags,
-                    Focus::Tags => Focus::Members,
-                    Focus::Members => Focus::Secrets,
-                };
-                self.set_focus(next);
-                self.send_hint(self.normal_hint()).await;
+                if self.secrets.editing_tag.is_none() {
+                    let next = match self.focus {
+                        Focus::Secrets => Focus::Tags,
+                        Focus::Tags => Focus::Members,
+                        Focus::Members => Focus::Secrets,
+                    };
+                    self.set_focus(next);
+                    self.send_hint(self.normal_hint()).await;
+                }
             }
             KeyCode::Char('n') => match self.focus {
                 Focus::Secrets => {
