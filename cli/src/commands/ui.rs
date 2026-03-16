@@ -2,7 +2,6 @@ use lib::{
     config::read_config,
     crypto::derive_private_key,
     error::{Error, Result},
-    invite::{generate_invite, VaultPayload},
     store::{unlock, Store},
 };
 
@@ -45,13 +44,5 @@ pub async fn run() -> Result<()> {
         agent.store_key(&vault.id, &private_key);
     }
 
-    let invite_token = generate_invite(
-        &vault.storage,
-        VaultPayload {
-            id: vault.id.clone(),
-            name: vault.name.clone(),
-        },
-    )?;
-
-    crate::tui::run(doc, store, session, invite_token, config.member_name, vault.name, vault.storage).await
+    crate::tui::run(doc, store, session, config.member_name, vault.name, vault.storage).await
 }

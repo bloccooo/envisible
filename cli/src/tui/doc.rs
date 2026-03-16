@@ -2,7 +2,7 @@ use automerge::AutoCommit;
 use autosurgeon::{hydrate, reconcile};
 use base64::{engine::general_purpose::STANDARD as B64, Engine};
 use lib::{
-    crypto::{compute_key_mac, encrypt_field, wrap_dek},
+    crypto::{compute_key_mac, derive_invite_key, encrypt_field, verify_invite_mac, wrap_dek},
     error::{Error, Result},
     members::{remove_member, rotate_dek},
     secrets::list_secrets,
@@ -66,6 +66,23 @@ pub fn apply_set_state(
             let pub_key: [u8; 32] = pub_key_bytes
                 .try_into()
                 .map_err(|_| Error::DecryptionFailed)?;
+
+            // Verify invite MAC if this member registered with a v2 invite token.
+            if !m.invite_mac.is_empty() && !m.invite_nonce.is_empty() {
+                let nonce_bytes = B64
+                    .decode(&m.invite_nonce)
+                    .map_err(|_| Error::InvalidInviteLink)?;
+                let invite_priv = derive_invite_key(&session.private_key, &nonce_bytes)?;
+                verify_invite_mac(
+                    &invite_priv,
+                    &pub_key,
+                    &m.id,
+                    &m.public_key,
+                    &m.signing_key,
+                    &m.invite_mac,
+                )?;
+            }
+
             m.wrapped_dek = wrap_dek(&session.dek, &pub_key)?;
             m.key_mac = compute_key_mac(&session.dek, &m.id, &m.public_key, &m.signing_key);
         }
@@ -110,6 +127,8 @@ pub fn state_to_envi_doc(doc: &AutoCommit, state: &State, dek: &[u8; 32]) -> Res
                 wrapped_dek: m.wrapped_dek.clone(),
                 signing_key: m.signing_key.clone(),
                 key_mac: m.key_mac.clone(),
+                invite_mac: m.invite_mac.clone(),
+                invite_nonce: m.invite_nonce.clone(),
             },
         );
     }
@@ -146,6 +165,8 @@ pub fn derive_state(doc: &AutoCommit, session: &Session, current: &State) -> Sta
             wrapped_dek: m.wrapped_dek.clone(),
             signing_key: m.signing_key.clone(),
             key_mac: m.key_mac.clone(),
+            invite_mac: m.invite_mac.clone(),
+            invite_nonce: m.invite_nonce.clone(),
             is_me: m.id == session.member_id,
         })
         .collect();
@@ -161,5 +182,6 @@ pub fn derive_state(doc: &AutoCommit, session: &Session, current: &State) -> Sta
         members,
         pending_grants: vec![],
         rotate_dek: false,
+        private_key: current.private_key,
     }
 }

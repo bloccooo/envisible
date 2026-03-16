@@ -37,7 +37,6 @@ pub async fn run(
     doc: AutoCommit,
     store: Store,
     session: Session,
-    _invite_token: String,
     device_name: String,
     vault_name: String,
     storage_config: StorageConfig,
@@ -98,6 +97,7 @@ async fn run_app(
             members: vec![],
             pending_grants: vec![],
             rotate_dek: false,
+            private_key: session.private_key,
         },
     ));
 

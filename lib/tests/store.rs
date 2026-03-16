@@ -57,6 +57,8 @@ fn unlock_pending_member_returns_access_pending() {
             wrapped_dek: String::new(), // pending — no DEK access yet
             signing_key: String::new(),
             key_mac: String::new(),
+            invite_mac: String::new(),
+            invite_nonce: String::new(),
         },
     );
 
@@ -111,6 +113,8 @@ fn unlock_detects_tampered_key_mac() {
             wrapped_dek,
             signing_key: verifying_key_b64,
             key_mac,
+            invite_mac: String::new(),
+            invite_nonce: String::new(),
         },
     );
     members.insert(
@@ -122,6 +126,8 @@ fn unlock_detects_tampered_key_mac() {
             wrapped_dek: wrapped_dek2,
             signing_key: verifying_key2_b64,
             key_mac: bad_mac,
+            invite_mac: String::new(),
+            invite_nonce: String::new(),
         },
     );
 

@@ -174,6 +174,8 @@ fn active_member(id: &str) -> Member {
         wrapped_dek: "wrapped".to_string(), // non-empty = active
         signing_key: "signkey".to_string(),
         key_mac: "mac".to_string(),
+        invite_mac: String::new(),
+        invite_nonce: String::new(),
     }
 }
 
@@ -185,6 +187,8 @@ fn pending_member(id: &str) -> Member {
         wrapped_dek: String::new(), // empty = pending
         signing_key: "pending_signkey".to_string(),
         key_mac: String::new(),
+        invite_mac: String::new(),
+        invite_nonce: String::new(),
     }
 }
 

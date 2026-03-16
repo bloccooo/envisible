@@ -30,6 +30,8 @@ fn make_member(id: &str, passphrase: &str, vault_id: &str, dek: &[u8; 32]) -> Me
         wrapped_dek,
         signing_key: verifying_key_b64,
         key_mac,
+        invite_mac: String::new(),
+        invite_nonce: String::new(),
     }
 }
 

@@ -173,6 +173,9 @@ pub struct Session {
     pub member_id: String,
     pub dek: [u8; 32],
     pub signing_key: ed25519_dalek::SigningKey,
+    /// X25519 private key seed — kept in session so the invite flow can re-derive
+    /// invite keypairs on demand without any local storage.
+    pub private_key: [u8; 32],
 }
 
 /// Unlock the document for the given private key.
@@ -210,5 +213,6 @@ pub fn unlock(doc: &AutoCommit, private_key: &[u8; 32]) -> Result<Session> {
         member_id: member.id.clone(),
         dek,
         signing_key,
+        private_key: *private_key,
     })
 }

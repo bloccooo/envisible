@@ -5,8 +5,8 @@ use dialoguer::{Input, Password, Select};
 use lib::{
     config::{read_config, write_config, EnviConfig, VaultConfig},
     crypto::{
-        compute_key_mac, derive_private_key, derive_signing_key, generate_dek, get_public_key,
-        wrap_dek,
+        compute_invite_mac, compute_key_mac, derive_private_key,
+        derive_signing_key, generate_dek, get_public_key, wrap_dek,
     },
     error::Result,
     invite::parse_invite,
@@ -158,8 +158,32 @@ pub async fn run(invite_token_arg: Option<String>) -> Result<()> {
         let private_key =
             derive_private_key(&passphrase, &payload.vault.id, &config.member_id)?;
         let public_key = get_public_key(&private_key);
+        let public_key_b64 = B64.encode(public_key);
         let signing_key = derive_signing_key(&private_key);
         let signing_public_key = B64.encode(signing_key.verifying_key().to_bytes());
+
+        // Compute invite MAC if this is a v2 token (has invite_pub + nonce).
+        // The MAC = HMAC(ECDH(own_priv, invite_pub), member_id:pub_key:signing_key).
+        // The inviter re-derives the invite key from their master key + nonce to verify.
+        let (invite_mac, invite_nonce) = match (&payload.invite_pub, &payload.nonce) {
+            (Some(invite_pub_b64), Some(nonce_b64)) => {
+                let invite_pub_bytes = B64
+                    .decode(invite_pub_b64)
+                    .map_err(|_| lib::error::Error::InvalidInviteLink)?;
+                let invite_pub: [u8; 32] = invite_pub_bytes
+                    .try_into()
+                    .map_err(|_| lib::error::Error::InvalidInviteLink)?;
+                let mac = compute_invite_mac(
+                    &private_key,
+                    &invite_pub,
+                    &config.member_id,
+                    &public_key_b64,
+                    &signing_public_key,
+                )?;
+                (mac, nonce_b64.clone())
+            }
+            _ => (String::new(), String::new()),
+        };
 
         config.vaults.push(VaultConfig {
             id: payload.vault.id.clone(),
@@ -175,10 +199,12 @@ pub async fn run(invite_token_arg: Option<String>) -> Result<()> {
             Member {
                 id: config.member_id.clone(),
                 email: config.member_name.clone(),
-                public_key: B64.encode(public_key),
+                public_key: public_key_b64,
                 signing_key: signing_public_key,
                 key_mac: String::new(),     // set by granter when wrapping DEK
                 wrapped_dek: String::new(), // Pending — existing member must grant access
+                invite_mac,
+                invite_nonce,
             },
         );
         reconcile(&mut doc, &state)?;
@@ -261,6 +287,8 @@ pub async fn run(invite_token_arg: Option<String>) -> Result<()> {
                 signing_key: signing_public_key,
                 key_mac,
                 wrapped_dek,
+                invite_mac: String::new(),
+                invite_nonce: String::new(),
             },
         );
         reconcile(&mut doc, &state)?;

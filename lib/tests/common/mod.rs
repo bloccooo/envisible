@@ -46,6 +46,8 @@ pub fn setup() -> Vault {
             wrapped_dek,
             signing_key: verifying_key_b64,
             key_mac,
+            invite_mac: String::new(),
+            invite_nonce: String::new(),
         },
     );
 

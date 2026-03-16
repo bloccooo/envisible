@@ -46,8 +46,7 @@ impl Component for HeaderComponent {
 
         let lines = vec![
             Line::from(
-                Span::raw(self.state.device_name.clone())
-                    .style(Style::default().fg(Color::DarkGray)),
+                Span::raw(self.state.device_name.clone()).style(Style::default().fg(Color::White)),
             ),
             Line::from(
                 Span::raw(format!(

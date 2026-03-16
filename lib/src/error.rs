@@ -23,6 +23,9 @@ pub enum Error {
     #[error("invalid invite token")]
     InvalidInviteLink,
 
+    #[error("invite MAC verification failed for member {0} — public key may have been tampered with")]
+    InvalidInviteMac(String),
+
     #[error("invite token expired")]
     InviteLinkExpired,
 

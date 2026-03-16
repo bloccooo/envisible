@@ -23,6 +23,8 @@ pub struct Member {
     pub wrapped_dek: String,
     pub signing_key: String,
     pub key_mac: String,
+    pub invite_mac: String,
+    pub invite_nonce: String,
     // Runtime: not in doc
     pub is_me: bool,
 }
@@ -72,6 +74,9 @@ pub struct State {
     pub pending_grants: Vec<String>,
     /// Signal the main loop to rotate the DEK. Always false after derive_state.
     pub rotate_dek: bool,
+    /// X25519 private key — in-memory only, never written to disk.
+    /// Used to generate invite tokens and verify invite MACs.
+    pub private_key: [u8; 32],
 }
 
 impl State {

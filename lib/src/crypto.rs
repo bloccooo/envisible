@@ -216,6 +216,63 @@ pub fn verify_document_signature(
         .map_err(|_| Error::InvalidSignature)
 }
 
+// --- Invite MAC ---
+
+/// Derive a deterministic invite private key from the inviter's X25519 private key and a nonce.
+/// invite_priv = HKDF(inviter_priv, salt=nonce, info="bkey-invite-v1")
+/// The nonce is stored in the invitee's member record, so the inviter can always re-derive.
+pub fn derive_invite_key(inviter_private_key: &[u8; 32], nonce: &[u8]) -> Result<[u8; 32]> {
+    hkdf_derive(inviter_private_key, nonce, b"bkey-invite-v1")
+}
+
+/// Compute the ECDH shared secret between my_private and their_public, then HKDF-derive.
+fn invite_ecdh_shared(my_private: &[u8; 32], their_public: &[u8; 32]) -> Result<[u8; 32]> {
+    let secret = StaticSecret::from(*my_private);
+    let public = PublicKey::from(*their_public);
+    let shared = secret.diffie_hellman(&public);
+    hkdf_derive(shared.as_bytes(), b"", b"bkey-invite-shared-v1")
+}
+
+/// Compute an invite MAC over the pending member's keys.
+/// Both sides compute the same shared secret via ECDH commutativity:
+///   invitee: my_private=invitee_priv, their_public=invite_pub
+///   granter: my_private=invite_priv,  their_public=invitee_pub
+pub fn compute_invite_mac(
+    my_private: &[u8; 32],
+    their_public: &[u8; 32],
+    member_id: &str,
+    public_key_b64: &str,
+    signing_key_b64: &str,
+) -> Result<String> {
+    let shared = invite_ecdh_shared(my_private, their_public)?;
+    let mut mac =
+        <HmacSha256 as hmac::Mac>::new_from_slice(&shared).expect("HMAC accepts any key size");
+    mac.update(member_id.as_bytes());
+    mac.update(b":");
+    mac.update(public_key_b64.as_bytes());
+    mac.update(b":");
+    mac.update(signing_key_b64.as_bytes());
+    Ok(B64.encode(mac.finalize().into_bytes()))
+}
+
+/// Verify an invite MAC. Returns Err(InvalidInviteMac) if the MAC doesn't match.
+pub fn verify_invite_mac(
+    my_private: &[u8; 32],
+    their_public: &[u8; 32],
+    member_id: &str,
+    public_key_b64: &str,
+    signing_key_b64: &str,
+    mac_b64: &str,
+) -> Result<()> {
+    let expected =
+        compute_invite_mac(my_private, their_public, member_id, public_key_b64, signing_key_b64)?;
+    if expected == mac_b64 {
+        Ok(())
+    } else {
+        Err(Error::InvalidInviteMac(member_id.to_string()))
+    }
+}
+
 // --- Key MAC ---
 
 /// Compute HMAC-SHA256(DEK, member_id ":" public_key ":" signing_key).

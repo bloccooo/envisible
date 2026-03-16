@@ -32,6 +32,14 @@ pub struct Member {
     /// Allows any DEK-holder to verify public keys haven't been tampered with.
     /// Empty string = pending (set by granter when wrapping the DEK).
     pub key_mac: String,
+    /// HMAC proving the invitee's public key was not swapped in storage.
+    /// Computed via ECDH(invitee_priv, invite_pub) shared secret.
+    /// Empty = old invite flow or genesis member.
+    pub invite_mac: String,
+    /// The nonce from the invite token, stored here so the inviter can
+    /// re-derive the invite private key on demand without local storage.
+    /// Empty = old invite flow or genesis member.
+    pub invite_nonce: String,
 }
 
 #[derive(Debug, Clone, Reconcile, Hydrate, Default)]

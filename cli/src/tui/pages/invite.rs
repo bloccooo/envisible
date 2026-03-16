@@ -28,12 +28,20 @@ impl InvitePage {
     pub const DEFAULT_HINT: &'static str = "[Esc] Close";
 
     pub fn new(actions_tx: Sender<Actions>, state: Arc<State>) -> Self {
+        let inviter_id = state
+            .members
+            .iter()
+            .find(|m| m.is_me)
+            .map(|m| m.id.as_str())
+            .unwrap_or("");
         let invite_token = generate_invite(
             &state.storage_config,
             VaultPayload {
                 id: state.vault_id.clone(),
                 name: state.vault_name.clone(),
             },
+            &state.private_key,
+            inviter_id,
         )
         .unwrap_or_else(|_| "(error generating token)".to_string());
         Self {
