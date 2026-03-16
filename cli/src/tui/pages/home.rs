@@ -122,12 +122,12 @@ impl HomePage {
     }
 
     async fn send_hint(&self, hint: impl Into<String>) {
-        let new_state = Arc::new((*self.state).clone().with_footer_hint(hint));
+        let new_state = Arc::new(State::cloned(&self.state).with_footer_hint(hint));
         let _ = self.actions_tx.send(Actions::SetState(new_state)).await;
     }
 
     async fn send_warning(&self, hint: impl Into<String>) {
-        let new_state = Arc::new((*self.state).clone().with_footer_warning(hint));
+        let new_state = Arc::new(State::cloned(&self.state).with_footer_warning(hint));
         let _ = self.actions_tx.send(Actions::SetState(new_state)).await;
     }
 

@@ -27,6 +27,8 @@ pub struct TagFormPage {
 }
 
 impl TagFormPage {
+    pub const DEFAULT_HINT: &'static str = "[Enter] Submit  [Esc] Cancel";
+
     pub fn new(actions_tx: Sender<Actions>, state: Arc<State>) -> Self {
         Self {
             actions_tx,
@@ -58,11 +60,7 @@ impl TagFormPage {
         }
         if let Some(old) = self.editing_tag.clone() {
             if new_name != old {
-                let new_state = Arc::new(
-                    (*self.state)
-                        .clone()
-                        .with_tag_renamed(&old, new_name),
-                );
+                let new_state = Arc::new(State::cloned(&self.state).with_tag_renamed(&old, new_name));
                 let _ = self.actions_tx.send(Actions::SetState(new_state)).await;
             }
             let _ = self.actions_tx.send(Actions::NavigateTo(Route::Home)).await;
@@ -108,11 +106,6 @@ impl Component for TagFormPage {
                 Span::styled(at, Style::default().bg(Color::White).fg(Color::Black)),
                 Span::raw(after),
             ]),
-            Line::from(""),
-            Line::from(vec![Span::styled(
-                "  [Enter] Submit  [Esc] Cancel",
-                Style::default().fg(Color::DarkGray),
-            )]),
         ];
 
         frame.render_widget(Paragraph::new(lines).block(block), area);

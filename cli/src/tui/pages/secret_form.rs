@@ -41,6 +41,8 @@ pub struct SecretFormPage {
 }
 
 impl SecretFormPage {
+    pub const DEFAULT_HINT: &'static str = "[Tab] Next field  [Enter] Submit  [Esc] Cancel";
+
     pub fn new(actions_tx: Sender<Actions>, state: Arc<State>) -> Self {
         Self {
             actions_tx,
@@ -348,11 +350,6 @@ impl SecretFormPage {
             lines.push(Line::from(""));
         }
 
-        lines.push(Line::from(vec![Span::styled(
-            "  [Enter] Next/Submit  [Up] Back  [Esc] Cancel",
-            Style::default().fg(Color::DarkGray),
-        )]));
-
         frame.render_widget(Paragraph::new(lines).block(block), area);
     }
 
@@ -403,11 +400,7 @@ impl SecretFormPage {
                 Style::default().fg(Color::DarkGray),
             )]));
         }
-        footer_lines.push(Line::from(""));
-        footer_lines.push(Line::from(vec![Span::styled(
-            "  [Enter] Newline  [Tab] Next  [Up] Back  [Esc] Cancel",
-            Style::default().fg(Color::DarkGray),
-        )]));
+
         frame.render_widget(Paragraph::new(footer_lines), chunks[2]);
     }
 }
@@ -467,7 +460,7 @@ impl Component for SecretFormPage {
 
                 match key.code {
                     KeyCode::Up => self.go_back_field(),
-                    KeyCode::Down | KeyCode::Enter => {
+                    KeyCode::Down | KeyCode::Enter | KeyCode::Tab => {
                         if self.field_idx < SECRET_FIELDS.len() - 1 {
                             self.advance_field();
                         } else if key.code == KeyCode::Enter {

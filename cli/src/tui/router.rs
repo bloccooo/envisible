@@ -23,7 +23,7 @@ pub struct Router {
 
 impl Router {
     pub fn new(actions_tx: Sender<Actions>, state: Arc<State>) -> Self {
-        let state = Arc::new((*state).clone().with_footer_hint(HomePage::DEFAULT_HINT));
+        let state = Arc::new(State::cloned(&state).with_footer_hint(HomePage::DEFAULT_HINT));
         Self {
             current_page: Box::new(HomePage::new(actions_tx.clone(), state.clone())),
             actions_tx,
@@ -34,13 +34,11 @@ impl Router {
     pub fn navigate(&mut self, route: Route) {
         let hint = match &route {
             Route::Home | Route::HomeWithTagAssignment(_) => HomePage::DEFAULT_HINT,
-            Route::NewSecret | Route::EditSecret(_) => {
-                "[Tab] Next field  [Enter] Submit  [Esc] Cancel"
-            }
-            Route::NewTag | Route::EditTag(_) => "[Enter] Submit  [Esc] Cancel",
+            Route::NewSecret | Route::EditSecret(_) => SecretFormPage::DEFAULT_HINT,
+            Route::NewTag | Route::EditTag(_) => TagFormPage::DEFAULT_HINT,
             Route::Invite => InvitePage::DEFAULT_HINT,
         };
-        self.state = Arc::new((*self.state).clone().with_footer_hint(hint));
+        self.state = Arc::new(State::cloned(&self.state).with_footer_hint(hint));
         let _ = self
             .actions_tx
             .try_send(Actions::SetState(self.state.clone()));

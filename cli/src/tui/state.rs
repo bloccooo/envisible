@@ -1,4 +1,5 @@
 use std::collections::HashSet;
+use std::sync::Arc;
 
 use lib::storage::StorageConfig;
 use uuid::Uuid;
@@ -74,6 +75,11 @@ pub struct State {
 }
 
 impl State {
+    /// Clone the inner State out of an Arc.
+    pub fn cloned(arc: &Arc<Self>) -> Self {
+        (**arc).clone()
+    }
+
     /// Derive sorted unique tags from all secrets.
     pub fn tags(&self) -> Vec<String> {
         let mut tag_set: std::collections::BTreeSet<String> = std::collections::BTreeSet::new();
