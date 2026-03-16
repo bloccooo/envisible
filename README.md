@@ -12,6 +12,25 @@ Secrets are encrypted with AES-256-GCM using a shared workspace key (DEK). Each 
 
 Each member maintains their own Automerge document, signed with an Ed25519 key before upload. Peers reject unsigned or tampered files before merging. Member keys are authenticated with an HMAC-SHA256 keyed by the DEK, so any DEK holder can detect if a member's keys were replaced at the storage layer.
 
+### Invite flow
+
+When a member generates an invite link, a random 16-byte nonce is used to deterministically derive an ephemeral X25519 keypair via HKDF from the inviter's private key:
+
+```
+invite_priv = HKDF(inviter_x25519_priv, salt=nonce, info="bkey-invite-v1")
+invite_pub  = X25519_pubkey(invite_priv)
+```
+
+The token contains `invite_pub`, the inviter's member ID, and the nonce. Nothing is stored locally — the invite private key can always be re-derived from the inviter's session key and the nonce.
+
+When the invitee registers, they perform an X25519 key exchange with `invite_pub` to derive a shared secret, then compute:
+
+```
+invite_mac = HMAC-SHA256(shared_secret, member_id || ":" || public_key || ":" || signing_key)
+```
+
+This MAC and the nonce are stored in their pending member record. When the inviter reviews the request, they re-derive `invite_priv` from the nonce, recompute the shared secret, and verify the MAC — confirming that the public key in the record is exactly the one the invitee registered, and was not swapped in storage by an attacker.
+
 ## Install
 
 ```sh
@@ -110,8 +129,8 @@ The current implementation uses sound cryptographic primitives (AES-256-GCM, X25
 - ~~**Authenticated CRDT documents**~~ — done. Each member's Automerge document is signed with an Ed25519 key before being pushed to storage. All files must be signed — unsigned files are rejected. Pending members are excluded from the canonical bytes so a new member registering their public key does not invalidate the existing signature. Member public and signing keys are protected by a per-member HMAC-SHA256 keyed by the shared DEK, so key substitution is detectable by any DEK holder.
 - **Genesis trust anchor** — the first time a member pulls a workspace, they have no prior state to verify signing keys against (TOFU). A future version will embed a signing key fingerprint in the invite link so the first pull can be verified against the invite.
 - **Signed invite links** — invite links will be signed by the issuing member's private key. Peers will verify the signature on join, ensuring the invite was issued by a legitimate workspace member and preventing forged or tampered links.
-- **Member identity verification** — new members self-register by writing their own public key into the shared document. A future version will require the inviting member to countersign the joining member's public key, preventing a malicious actor from substituting their own key during the join flow.
-- **Single-use, expiring invite links** — invite links currently have no expiry and can be reused indefinitely. They will include a short-lived nonce so that replayed or leaked links cannot be used to register new members.
+- ~~**Member identity verification**~~ — done. The invite flow now uses an X25519 key exchange between the inviter's derived ephemeral key and the invitee's public key to produce a shared secret that neither party needs to transmit. The invitee computes an HMAC over their own public and signing keys; the inviter re-derives the shared secret on review and verifies the MAC, detecting any key substitution at the storage layer.
+- **Single-use, expiring invite links** — invite links currently have no expiry and can be reused indefinitely. Each link already carries a unique nonce (binding it to a specific ephemeral key), but a future version will add explicit expiry and enforce single-use so that replayed or leaked links cannot register new members.
 - **Scoped secret injection** — `envi exec` will require secrets to be explicitly declared (e.g. in the `.envi` file) rather than injecting the full workspace vault, limiting the blast radius of prompt-injection attacks against AI agents.
 
 ## Building from source
