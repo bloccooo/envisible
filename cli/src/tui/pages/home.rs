@@ -9,7 +9,7 @@ use ratatui::{
 use tokio::sync::mpsc::Sender;
 
 use crate::tui::{
-    actions::{Actions, DocMutation, Route},
+    actions::{Actions, Route},
     component::{Component, EventResult},
     components::{
         header::HeaderComponent, members::MembersComponent, secrets::SecretsComponent,
@@ -110,7 +110,7 @@ impl HomePage {
                     .state
                     .members
                     .get(self.members.member_idx)
-                    .map(|m| m.is_pending)
+                    .map(|m| m.is_pending())
                     .unwrap_or(false);
                 if pending {
                     "[g] Grant  [d] Remove  [i] Invite  [Tab] Switch  [q] Quit"
@@ -136,17 +136,15 @@ impl HomePage {
             Some(t) => t,
             None => return,
         };
-        let selected_ids = self.secrets.ts_selected_ids.clone();
-        let _ = self
-            .actions_tx
-            .send(Actions::ApplyMutation(
-                DocMutation::SaveTagAssignments { tag, selected_ids },
-                Some(
-                    "[n] New  [e] Rename  [s] Assign  [d] Delete  [Tab] Switch  [q] Quit"
-                        .to_string(),
+        let new_state = Arc::new(
+            (*self.state)
+                .clone()
+                .with_tag_assignments(&tag, &self.secrets.ts_selected_ids)
+                .with_footer_hint(
+                    "[n] New  [e] Rename  [s] Assign  [d] Delete  [Tab] Switch  [q] Quit",
                 ),
-            ))
-            .await;
+        );
+        let _ = self.actions_tx.send(Actions::SetState(new_state)).await;
     }
 }
 
@@ -229,13 +227,13 @@ impl Component for HomePage {
                         if self.tags.tag_idx > 0 {
                             self.tags.tag_idx -= 1;
                         }
-                        let _ = self
-                            .actions_tx
-                            .send(Actions::ApplyMutation(
-                                DocMutation::DeleteTag { tag },
-                                Some(self.normal_hint().to_string()),
-                            ))
-                            .await;
+                        let new_state = Arc::new(
+                            (*self.state)
+                                .clone()
+                                .with_tag_deleted(&tag)
+                                .with_footer_hint(self.normal_hint()),
+                        );
+                        let _ = self.actions_tx.send(Actions::SetState(new_state)).await;
                     }
                 }
                 KeyCode::Char('n') | KeyCode::Esc => {
@@ -255,13 +253,13 @@ impl Component for HomePage {
                         if self.secrets.sec_idx > 0 {
                             self.secrets.sec_idx -= 1;
                         }
-                        let _ = self
-                            .actions_tx
-                            .send(Actions::ApplyMutation(
-                                DocMutation::DeleteSecret { id },
-                                Some(self.normal_hint().to_string()),
-                            ))
-                            .await;
+                        let new_state = Arc::new(
+                            (*self.state)
+                                .clone()
+                                .with_secret_deleted(&id)
+                                .with_footer_hint(self.normal_hint()),
+                        );
+                        let _ = self.actions_tx.send(Actions::SetState(new_state)).await;
                     }
                 }
                 KeyCode::Char('n') | KeyCode::Esc => {
@@ -281,13 +279,13 @@ impl Component for HomePage {
                         if self.members.member_idx > 0 {
                             self.members.member_idx -= 1;
                         }
-                        let _ = self
-                            .actions_tx
-                            .send(Actions::ApplyMutation(
-                                DocMutation::RemoveMember { id },
-                                Some(self.normal_hint().to_string()),
-                            ))
-                            .await;
+                        let new_state = Arc::new(
+                            (*self.state)
+                                .clone()
+                                .with_member_removed(&id)
+                                .with_footer_hint(self.normal_hint()),
+                        );
+                        let _ = self.actions_tx.send(Actions::SetState(new_state)).await;
                     }
                 }
                 KeyCode::Char('n') | KeyCode::Esc => {
@@ -304,13 +302,13 @@ impl Component for HomePage {
             match key.code {
                 KeyCode::Char('y') => {
                     self.confirming_rotate = false;
-                    let _ = self
-                        .actions_tx
-                        .send(Actions::ApplyMutation(
-                            DocMutation::RotateDek,
-                            Some(self.normal_hint().to_string()),
-                        ))
-                        .await;
+                    let new_state = Arc::new(
+                        (*self.state)
+                            .clone()
+                            .with_dek_rotated()
+                            .with_footer_hint(self.normal_hint()),
+                    );
+                    let _ = self.actions_tx.send(Actions::SetState(new_state)).await;
                 }
                 KeyCode::Char('n') | KeyCode::Esc => {
                     self.confirming_rotate = false;
@@ -326,13 +324,13 @@ impl Component for HomePage {
             match key.code {
                 KeyCode::Char('y') => {
                     if let Some(id) = self.member_to_grant.take() {
-                        let _ = self
-                            .actions_tx
-                            .send(Actions::ApplyMutation(
-                                DocMutation::GrantMember { id },
-                                Some(self.normal_hint().to_string()),
-                            ))
-                            .await;
+                        let new_state = Arc::new(
+                            (*self.state)
+                                .clone()
+                                .with_member_granted(&id)
+                                .with_footer_hint(self.normal_hint()),
+                        );
+                        let _ = self.actions_tx.send(Actions::SetState(new_state)).await;
                     }
                 }
                 KeyCode::Char('n') | KeyCode::Esc => {
@@ -462,7 +460,7 @@ impl Component for HomePage {
             KeyCode::Char('g') => {
                 if self.focus == Focus::Members {
                     if let Some(m) = self.state.members.get(self.members.member_idx) {
-                        if m.is_pending {
+                        if m.is_pending() {
                             let msg = format!("Grant access to {}? [y] Yes  [n] No", m.email);
                             self.member_to_grant = Some(m.id.clone());
                             self.send_warning(msg).await;

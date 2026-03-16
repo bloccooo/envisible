@@ -48,14 +48,14 @@ impl Component for MembersComponent {
                 let is_selected = i == self.member_idx && focused;
                 let label = if m.is_me {
                     format!("{} (you)", m.email)
-                } else if m.is_pending {
+                } else if m.is_pending() {
                     format!("{} [pending]", m.email)
                 } else {
                     m.email.clone()
                 };
                 let style = if is_selected {
                     Style::default().bg(Color::Cyan).fg(Color::Black)
-                } else if m.is_pending {
+                } else if m.is_pending() {
                     Style::default().fg(Color::Yellow)
                 } else {
                     Style::default()

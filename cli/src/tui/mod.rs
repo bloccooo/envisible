@@ -17,10 +17,10 @@ use crossterm::{
     terminal::{disable_raw_mode, enable_raw_mode, EnterAlternateScreen, LeaveAlternateScreen},
 };
 use lib::{
-    crypto::{compute_key_mac, wrap_dek},
+    crypto::{compute_key_mac, encrypt_field, wrap_dek},
     error::{Error, Result},
     members::{remove_member, rotate_dek},
-    secrets::{add_secret, list_secrets, update_secret, PlaintextSecretFields},
+    secrets::list_secrets,
     storage::StorageConfig,
     store::{Session, Store},
     types::EnviDocument,
@@ -30,7 +30,7 @@ use tokio::sync::mpsc;
 use tokio::task::JoinHandle;
 use tokio::time::Duration;
 
-use actions::{Actions, DocMutation};
+use actions::Actions;
 use component::Component;
 use router::Router;
 use state::{FooterState, FooterStatus, Member, Secret, State};
@@ -87,7 +87,6 @@ async fn run_app(
         envi.id.clone()
     };
 
-    // Build initial state from the real document.
     let initial_state = Arc::new(derive_state(
         &doc,
         &session,
@@ -99,6 +98,8 @@ async fn run_app(
             footer: FooterState::default(),
             secrets: vec![],
             members: vec![],
+            pending_grants: vec![],
+            rotate_dek: false,
         },
     ));
 
@@ -129,21 +130,20 @@ async fn run_app(
                     return Ok(());
                 }
                 Actions::SetState(new_state) => {
-                    state = new_state;
-                    router.update(state.clone()).await;
-                }
-                Actions::ApplyMutation(mutation, hint) => {
-                    match apply_mutation(&mut doc, &mut session, &state, mutation) {
-                        Ok(()) => {
-                            let mut new_state = derive_state(&doc, &session, &state);
-                            if let Some(h) = hint {
-                                new_state = new_state.with_footer_hint(h);
-                            }
-                            new_state.footer.status = FooterStatus::Syncing;
-                            state = Arc::new(new_state);
+                    if !is_doc_change(&state, &new_state) {
+                        // Footer/hint only — no doc mutation needed.
+                        state = new_state;
+                        router.update(state.clone()).await;
+                        continue;
+                    }
+
+                    match apply_set_state(&mut doc, &mut session, &state, &new_state) {
+                        Ok(mut canonical) => {
+                            canonical.footer = new_state.footer.clone();
+                            canonical.footer.status = FooterStatus::Syncing;
+                            state = Arc::new(canonical);
                             router.update(state.clone()).await;
 
-                            // Spawn background persist task.
                             let doc_bytes = doc.save();
                             let store_clone = Arc::clone(&store);
                             let signing_key = session.signing_key.clone();
@@ -158,7 +158,7 @@ async fn run_app(
                         }
                         Err(e) => {
                             state = Arc::new(
-                                (*state)
+                                (*new_state)
                                     .clone()
                                     .with_footer_status(FooterStatus::Error(e.to_string())),
                             );
@@ -183,7 +183,6 @@ async fn run_app(
         // Wait for the next terminal event (blocks up to 16ms, ~60fps).
         if event::poll(Duration::from_millis(16)).map_err(|e| Error::Other(e.to_string()))? {
             let ev = event::read().map_err(|e| Error::Other(e.to_string()))?;
-            // Ctrl+C exits unconditionally.
             if let Event::Key(key) = &ev {
                 if key.modifiers.contains(KeyModifiers::CONTROL) && key.code == KeyCode::Char('c') {
                     return Ok(());
@@ -194,10 +193,117 @@ async fn run_app(
     }
 }
 
+/// Returns true if new_state requires a doc mutation (vs a footer-only update).
+fn is_doc_change(old: &State, new: &State) -> bool {
+    new.rotate_dek
+        || !new.pending_grants.is_empty()
+        || old.secrets != new.secrets
+        || old.members.len() != new.members.len()
+        || old
+            .members
+            .iter()
+            .zip(new.members.iter())
+            .any(|(o, n)| o.id != n.id)
+}
+
+/// Apply the doc changes implied by new_state and return the re-derived canonical State.
+/// The caller is responsible for restoring the footer from new_state.
+fn apply_set_state(
+    doc: &mut AutoCommit,
+    session: &mut Session,
+    old: &State,
+    new: &State,
+) -> Result<State> {
+    // ── DEK rotation (lib handles full re-encryption internally) ──────────────
+    if new.rotate_dek {
+        let new_dek = rotate_dek(doc, &session.dek)?;
+        session.dek = new_dek;
+        return Ok(derive_state(doc, session, new));
+    }
+
+    // ── Member removal (triggers internal DEK rotation) ───────────────────────
+    let removed: Vec<String> = old
+        .members
+        .iter()
+        .filter(|m| !new.members.iter().any(|nm| nm.id == m.id))
+        .map(|m| m.id.clone())
+        .collect();
+    if !removed.is_empty() {
+        for id in &removed {
+            let new_dek = remove_member(doc, &session.dek, id)?;
+            session.dek = new_dek;
+        }
+        return Ok(derive_state(doc, session, new));
+    }
+
+    // ── Grant + secret/tag changes: build EnviDocument and reconcile ──────────
+    let mut effective = new.clone();
+
+    for id in &new.pending_grants {
+        if let Some(m) = effective.members.iter_mut().find(|m| m.id == *id) {
+            let pub_key_bytes = B64
+                .decode(&m.public_key)
+                .map_err(|_| Error::DecryptionFailed)?;
+            let pub_key: [u8; 32] = pub_key_bytes
+                .try_into()
+                .map_err(|_| Error::DecryptionFailed)?;
+            m.wrapped_dek = wrap_dek(&session.dek, &pub_key)?;
+            m.key_mac =
+                compute_key_mac(&session.dek, &m.id, &m.public_key, &m.signing_key);
+        }
+    }
+    effective.pending_grants.clear();
+
+    let envi = state_to_envi_doc(doc, &effective, &session.dek)?;
+    reconcile(doc, &envi).map_err(|e| Error::Other(e.to_string()))?;
+
+    Ok(derive_state(doc, session, &effective))
+}
+
+/// Build an EnviDocument from State by encrypting all plaintext secrets.
+/// Starts from the current doc (preserves doc_version, document_signature, etc.)
+/// then overwrites secrets and members entirely from State.
+fn state_to_envi_doc(doc: &AutoCommit, state: &State, dek: &[u8; 32]) -> Result<EnviDocument> {
+    let mut envi: EnviDocument = hydrate(doc).map_err(|e| Error::Other(e.to_string()))?;
+
+    envi.secrets.clear();
+    for s in &state.secrets {
+        let tags_json = serde_json::to_string(&s.tags)?;
+        envi.secrets.insert(
+            s.id.clone(),
+            lib::types::Secret {
+                id: s.id.clone(),
+                name: encrypt_field(&s.name, dek)?,
+                value: encrypt_field(&s.value, dek)?,
+                description: encrypt_field(&s.description, dek)?,
+                tags: encrypt_field(&tags_json, dek)?,
+            },
+        );
+    }
+
+    envi.members.clear();
+    for m in &state.members {
+        envi.members.insert(
+            m.id.clone(),
+            lib::types::Member {
+                id: m.id.clone(),
+                email: m.email.clone(),
+                public_key: m.public_key.clone(),
+                wrapped_dek: m.wrapped_dek.clone(),
+                signing_key: m.signing_key.clone(),
+                key_mac: m.key_mac.clone(),
+            },
+        );
+    }
+
+    Ok(envi)
+}
+
 /// Re-derive the in-memory State from the automerge document.
 /// Copies footer from `current` so hints and status are preserved.
+/// Always resets rotate_dek and pending_grants.
 fn derive_state(doc: &AutoCommit, session: &Session, current: &State) -> State {
-    let envi_state: EnviDocument = hydrate(doc).unwrap_or_default();
+    let envi: EnviDocument = hydrate(doc).unwrap_or_default();
 
     let mut secrets: Vec<Secret> = list_secrets(doc, &session.dek)
         .unwrap_or_default()
@@ -212,14 +318,17 @@ fn derive_state(doc: &AutoCommit, session: &Session, current: &State) -> State {
         .collect();
     secrets.sort_by(|a, b| a.name.to_lowercase().cmp(&b.name.to_lowercase()));
 
-    let mut members: Vec<Member> = envi_state
+    let mut members: Vec<Member> = envi
         .members
         .values()
         .map(|m| Member {
             id: m.id.clone(),
             email: m.email.clone(),
+            public_key: m.public_key.clone(),
+            wrapped_dek: m.wrapped_dek.clone(),
+            signing_key: m.signing_key.clone(),
+            key_mac: m.key_mac.clone(),
             is_me: m.id == session.member_id,
-            is_pending: m.wrapped_dek.is_empty(),
         })
         .collect();
     members.sort_by(|a, b| a.email.cmp(&b.email));
@@ -232,155 +341,7 @@ fn derive_state(doc: &AutoCommit, session: &Session, current: &State) -> State {
         footer: current.footer.clone(),
         secrets,
         members,
+        pending_grants: vec![],
+        rotate_dek: false,
     }
-}
-
-/// Apply a document mutation. Mutates `doc` and/or `session` in-place.
-fn apply_mutation(
-    doc: &mut AutoCommit,
-    session: &mut Session,
-    current_state: &State,
-    mutation: DocMutation,
-) -> Result<()> {
-    match mutation {
-        DocMutation::AddSecret {
-            name,
-            value,
-            description,
-            tags,
-        } => {
-            add_secret(
-                doc,
-                &session.dek,
-                PlaintextSecretFields {
-                    name,
-                    value,
-                    description,
-                    tags,
-                },
-            )?;
-        }
-        DocMutation::UpdateSecret {
-            id,
-            name,
-            value,
-            description,
-            tags,
-        } => {
-            update_secret(
-                doc,
-                &session.dek,
-                &id,
-                PlaintextSecretFields {
-                    name,
-                    value,
-                    description,
-                    tags,
-                },
-            )?;
-        }
-        DocMutation::DeleteSecret { id } => {
-            lib::secrets::remove_secret(doc, &id)?;
-        }
-        DocMutation::RenameTag { old, new_name } => {
-            for secret in &current_state.secrets {
-                if secret.tags.contains(&old) {
-                    let tags = secret
-                        .tags
-                        .iter()
-                        .map(|t| {
-                            if t == &old {
-                                new_name.clone()
-                            } else {
-                                t.clone()
-                            }
-                        })
-                        .collect();
-                    update_secret(
-                        doc,
-                        &session.dek,
-                        &secret.id,
-                        PlaintextSecretFields {
-                            name: secret.name.clone(),
-                            value: secret.value.clone(),
-                            description: secret.description.clone(),
-                            tags,
-                        },
-                    )?;
-                }
-            }
-        }
-        DocMutation::DeleteTag { tag } => {
-            for secret in &current_state.secrets {
-                if secret.tags.contains(&tag) {
-                    let tags = secret.tags.iter().filter(|t| *t != &tag).cloned().collect();
-                    update_secret(
-                        doc,
-                        &session.dek,
-                        &secret.id,
-                        PlaintextSecretFields {
-                            name: secret.name.clone(),
-                            value: secret.value.clone(),
-                            description: secret.description.clone(),
-                            tags,
-                        },
-                    )?;
-                }
-            }
-        }
-        DocMutation::SaveTagAssignments { tag, selected_ids } => {
-            for secret in &current_state.secrets {
-                let has = selected_ids.contains(&secret.id);
-                let had = secret.tags.contains(&tag);
-                if has != had {
-                    let mut tags = secret.tags.clone();
-                    if has {
-                        tags.push(tag.clone());
-                    } else {
-                        tags.retain(|t| t != &tag);
-                    }
-                    update_secret(
-                        doc,
-                        &session.dek,
-                        &secret.id,
-                        PlaintextSecretFields {
-                            name: secret.name.clone(),
-                            value: secret.value.clone(),
-                            description: secret.description.clone(),
-                            tags,
-                        },
-                    )?;
-                }
-            }
-        }
-        DocMutation::GrantMember { id } => {
-            let envi_state: EnviDocument =
-                hydrate(doc as &AutoCommit).map_err(|e| Error::Other(e.to_string()))?;
-            if let Some(m) = envi_state.members.get(&id) {
-                let pub_key_bytes = B64
-                    .decode(&m.public_key)
-                    .map_err(|_| Error::DecryptionFailed)?;
-                let pub_key: [u8; 32] = pub_key_bytes
-                    .try_into()
-                    .map_err(|_| Error::DecryptionFailed)?;
-                let wrapped = wrap_dek(&session.dek, &pub_key)?;
-                let key_mac = compute_key_mac(&session.dek, &m.id, &m.public_key, &m.signing_key);
-                let mut new_envi = envi_state;
-                if let Some(m) = new_envi.members.get_mut(&id) {
-                    m.wrapped_dek = wrapped;
-                    m.key_mac = key_mac;
-                }
-                reconcile(doc, &new_envi).map_err(|e| Error::Other(e.to_string()))?;
-            }
-        }
-        DocMutation::RemoveMember { id } => {
-            let new_dek = remove_member(doc, &session.dek, &id)?;
-            session.dek = new_dek;
-        }
-        DocMutation::RotateDek => {
-            let new_dek = rotate_dek(doc, &session.dek)?;
-            session.dek = new_dek;
-        }
-    }
-    Ok(())
 }

@@ -12,13 +12,14 @@ use ratatui::{
 use tokio::sync::mpsc::Sender;
 
 use crate::tui::{
-    actions::{Actions, DocMutation, Route},
+    actions::{Actions, Route},
     component::{Component, EventResult},
     state::State,
 };
 
 pub struct TagFormPage {
     actions_tx: Sender<Actions>,
+    state: Arc<State>,
     editing_tag: Option<String>,
     field_input: String,
     cursor: usize,
@@ -26,9 +27,10 @@ pub struct TagFormPage {
 }
 
 impl TagFormPage {
-    pub fn new(actions_tx: Sender<Actions>, _state: Arc<State>) -> Self {
+    pub fn new(actions_tx: Sender<Actions>, state: Arc<State>) -> Self {
         Self {
             actions_tx,
+            state,
             editing_tag: None,
             field_input: String::new(),
             cursor: 0,
@@ -36,10 +38,11 @@ impl TagFormPage {
         }
     }
 
-    pub fn new_edit(actions_tx: Sender<Actions>, _state: Arc<State>, old_name: String) -> Self {
+    pub fn new_edit(actions_tx: Sender<Actions>, state: Arc<State>, old_name: String) -> Self {
         let cursor = old_name.chars().count();
         Self {
             actions_tx,
+            state,
             editing_tag: Some(old_name.clone()),
             field_input: old_name,
             cursor,
@@ -55,16 +58,14 @@ impl TagFormPage {
         }
         if let Some(old) = self.editing_tag.clone() {
             if new_name != old {
-                let _ = self
-                    .actions_tx
-                    .send(Actions::ApplyMutation(
-                        DocMutation::RenameTag { old, new_name },
-                        None,
-                    ))
-                    .await;
-            } else {
-                let _ = self.actions_tx.send(Actions::NavigateTo(Route::Home)).await;
+                let new_state = Arc::new(
+                    (*self.state)
+                        .clone()
+                        .with_tag_renamed(&old, new_name),
+                );
+                let _ = self.actions_tx.send(Actions::SetState(new_state)).await;
             }
+            let _ = self.actions_tx.send(Actions::NavigateTo(Route::Home)).await;
         } else {
             // New tag: navigate home in tag-assignment mode
             let _ = self
@@ -117,7 +118,9 @@ impl Component for TagFormPage {
         frame.render_widget(Paragraph::new(lines).block(block), area);
     }
 
-    async fn update(&mut self, _state: Arc<State>) {}
+    async fn update(&mut self, state: Arc<State>) {
+        self.state = state;
+    }
 
     async fn handle_event(&mut self, event: Event) -> EventResult {
         if let Event::Key(key) = event {

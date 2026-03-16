@@ -12,7 +12,7 @@ use ratatui::{
 use tokio::sync::mpsc::Sender;
 
 use crate::tui::{
-    actions::{Actions, DocMutation, Route},
+    actions::{Actions, Route},
     component::{Component, EventResult},
     components::textarea::{TextAreaComponent, TextAreaEvent},
     state::State,
@@ -136,25 +136,18 @@ impl SecretFormPage {
         let description = all.get(2).cloned().unwrap_or_default();
         let tags = split_tags(all.get(3).cloned().unwrap_or_default().as_str());
 
-        let mutation = if let Some(id) = self.editing_id.clone() {
-            DocMutation::UpdateSecret {
-                id,
-                name,
-                value,
-                description,
-                tags,
-            }
+        let new_state = if let Some(id) = self.editing_id.clone() {
+            (*self.state)
+                .clone()
+                .with_secret_updated(id, name, value, description, tags)
         } else {
-            DocMutation::AddSecret {
-                name,
-                value,
-                description,
-                tags,
-            }
+            (*self.state)
+                .clone()
+                .with_secret_added(name, value, description, tags)
         };
         let _ = self
             .actions_tx
-            .send(Actions::ApplyMutation(mutation, None))
+            .send(Actions::SetState(Arc::new(new_state)))
             .await;
         let _ = self.actions_tx.send(Actions::NavigateTo(Route::Home)).await;
     }
