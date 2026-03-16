@@ -42,8 +42,8 @@ impl Component for Router {
         self.current_page.handle_event(event).await
     }
 
-    fn render(&self, frame: &mut ratatui::Frame) {
-        self.current_page.render(frame);
+    fn render(&self, frame: &mut ratatui::Frame, area: ratatui::layout::Rect) {
+        self.current_page.render(frame, area);
     }
 
     async fn update(&mut self, state: Arc<State>) {

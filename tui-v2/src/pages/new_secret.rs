@@ -147,8 +147,7 @@ impl NewSecretPage {
         }
     }
 
-    fn render_form(&self, frame: &mut Frame) {
-        let area = frame.area();
+    fn render_form(&self, frame: &mut Frame, area: Rect) {
 
         let block = Block::default()
             .title(" New Secret ")
@@ -291,8 +290,8 @@ impl NewSecretPage {
 
 #[async_trait]
 impl Component for NewSecretPage {
-    fn render(&self, frame: &mut Frame) {
-        self.render_form(frame);
+    fn render(&self, frame: &mut Frame, area: Rect) {
+        self.render_form(frame, area);
     }
 
     async fn update(&mut self, state: Arc<State>) {

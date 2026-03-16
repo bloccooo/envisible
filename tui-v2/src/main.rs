@@ -42,7 +42,7 @@ async fn main() -> io::Result<()> {
                     return Ok(());
                 }
                 Actions::Render => {
-                    terminal.draw(|frame| router.render(frame))?;
+                    terminal.draw(|frame| { let area = frame.area(); router.render(frame, area); })?;
                 }
                 Actions::SetState(new_state) => {
                     state = new_state;
@@ -50,7 +50,7 @@ async fn main() -> io::Result<()> {
                 }
                 Actions::NavigateTo(route) => {
                     router.navigate(route);
-                    terminal.draw(|frame| router.render(frame))?;
+                    terminal.draw(|frame| { let area = frame.area(); router.render(frame, area); })?;
                 }
             }
         }
@@ -58,7 +58,7 @@ async fn main() -> io::Result<()> {
         // Then block on the next terminal event
         if let Some(Ok(event)) = events.next().await {
             router.handle_event(event).await;
-            terminal.draw(|frame| router.render(frame))?;
+            terminal.draw(|frame| { let area = frame.area(); router.render(frame, area); })?;
         }
     }
 }

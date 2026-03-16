@@ -30,9 +30,7 @@ impl HomePage {
 
 #[async_trait]
 impl Component for HomePage {
-    fn render(&self, frame: &mut Frame) {
-        let area = frame.area();
-
+    fn render(&self, frame: &mut Frame, area: Rect) {
         let chunks = Layout::default()
             .direction(Direction::Vertical)
             .constraints([
@@ -41,8 +39,8 @@ impl Component for HomePage {
             ])
             .split(area);
 
-        self.header.render_area(frame, chunks[0]);
-        self.secrets.render_area(frame, chunks[1]);
+        self.header.render(frame, chunks[0]);
+        self.secrets.render(frame, chunks[1]);
     }
 
     async fn update(&mut self, state: Arc<State>) {

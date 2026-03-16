@@ -28,7 +28,7 @@ impl SecretsComponent {
         }
     }
 
-    pub fn render_area(&self, frame: &mut Frame, area: Rect) {
+    fn render_area(&self, frame: &mut Frame, area: Rect) {
         let focused = self.focused;
         let border_style = if focused {
             Style::default().fg(Color::Cyan)
@@ -115,8 +115,8 @@ impl SecretsComponent {
 
 #[async_trait]
 impl Component for SecretsComponent {
-    fn render(&self, frame: &mut Frame) {
-        self.render_area(frame, frame.area());
+    fn render(&self, frame: &mut Frame, area: Rect) {
+        self.render_area(frame, area);
     }
 
     async fn update(&mut self, state: Arc<State>) {

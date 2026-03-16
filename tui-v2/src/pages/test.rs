@@ -22,10 +22,10 @@ impl TestPage {
 
 #[async_trait]
 impl Component for TestPage {
-    fn render(&self, frame: &mut Frame) {
+    fn render(&self, frame: &mut Frame, area: Rect) {
         frame.render_widget(
             Paragraph::new("This is the test page").block(Block::bordered().title("tui-v2")),
-            frame.area(),
+            area,
         );
     }
 
