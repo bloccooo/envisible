@@ -6,7 +6,7 @@ use ratatui::{
     layout::Rect,
     style::{Color, Modifier, Style},
     text::{Line, Span},
-    widgets::{Block, Borders, Paragraph},
+    widgets::{Block, BorderType, Borders, Padding, Paragraph},
     Frame,
 };
 
@@ -36,7 +36,7 @@ impl HeaderComponent {
         Self { state }
     }
 
-    pub const HEIGHT: u16 = 5;
+    pub const HEIGHT: u16 = 6;
 }
 
 #[async_trait]
@@ -45,24 +45,31 @@ impl Component for HeaderComponent {
         const VERSION: &str = env!("CARGO_PKG_VERSION");
 
         let lines = vec![
-            Line::from(Span::styled(
-                format!("Envisible · v{VERSION}"),
-                Style::default()
-                    .fg(Color::Cyan)
-                    .add_modifier(Modifier::BOLD),
-            )),
-            Line::from(Span::raw(self.state.device_name.clone())),
-            Line::from(Span::raw(format!(
-                "{} · {}",
-                self.state.vault_name,
-                storage_backend_label(&self.state.storage_config),
-            ))),
+            Line::from(
+                Span::raw(self.state.device_name.clone())
+                    .style(Style::default().fg(Color::DarkGray)),
+            ),
+            Line::from(
+                Span::raw(format!(
+                    "{} • {}",
+                    self.state.vault_name,
+                    storage_backend_label(&self.state.storage_config),
+                ))
+                .style(Style::default().fg(Color::DarkGray)),
+            ),
         ];
 
         let block = Block::default()
-            .title(" Envisible ")
+            .title(format!(" Envisible • v{VERSION} "))
+            .title_style(
+                Style::default()
+                    .fg(Color::White)
+                    .add_modifier(Modifier::BOLD),
+            )
             .borders(Borders::ALL)
-            .border_style(Style::default().fg(Color::DarkGray));
+            .border_type(BorderType::Rounded)
+            .border_style(Style::default().fg(Color::DarkGray))
+            .padding(Padding::new(1, 1, 1, 1));
 
         frame.render_widget(Paragraph::new(lines).block(block), area);
     }

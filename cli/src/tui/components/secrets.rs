@@ -6,7 +6,7 @@ use crossterm::event::{Event, KeyCode};
 use ratatui::{
     layout::{Constraint, Rect},
     style::{Color, Modifier, Style},
-    widgets::{Block, Borders, Cell, Paragraph, Row, Table, TableState},
+    widgets::{Block, BorderType, Borders, Cell, Padding, Paragraph, Row, Table, TableState},
     Frame,
 };
 
@@ -51,11 +51,13 @@ impl Component for SecretsComponent {
         let assigning = self.editing_tag.is_some();
         let value_col_width = (area.width.saturating_sub(4) as usize) * 40 / 100 - 2;
 
-        let header = Row::new(
-            ["Name", "Value", "Tags"]
-                .iter()
-                .map(|h| Cell::from(*h).style(Style::default().add_modifier(Modifier::BOLD))),
-        )
+        let header = Row::new(["Name", "Value", "Tags"].iter().map(|h| {
+            Cell::from(*h).style(
+                Style::default()
+                    .fg(Color::Gray)
+                    .add_modifier(Modifier::BOLD),
+            )
+        }))
         .height(1);
 
         let rows: Vec<Row> = secrets
@@ -113,8 +115,15 @@ impl Component for SecretsComponent {
 
         let block = Block::default()
             .title(title)
+            .title_style(
+                Style::default()
+                    .fg(Color::White)
+                    .add_modifier(Modifier::BOLD),
+            )
             .borders(Borders::ALL)
-            .border_style(border_style);
+            .border_type(BorderType::Rounded)
+            .border_style(border_style)
+            .padding(Padding::uniform(1));
 
         if secrets.is_empty() {
             let placeholder = Paragraph::new("press n to add a new secret")

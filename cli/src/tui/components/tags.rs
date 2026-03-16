@@ -4,8 +4,8 @@ use async_trait::async_trait;
 use crossterm::event::{Event, KeyCode};
 use ratatui::{
     layout::Rect,
-    style::{Color, Style},
-    widgets::{Block, Borders, List, ListItem, ListState},
+    style::{Color, Modifier, Style},
+    widgets::{Block, BorderType, Borders, List, ListItem, ListState, Padding},
     Frame,
 };
 
@@ -64,8 +64,11 @@ impl Component for TagsComponent {
         let scroll = scroll_indicators(self.tag_idx, tags.len(), area.height as usize, 2);
         let block = Block::default()
             .title(format!(" Tags ({}) {} ", tags.len(), scroll))
+            .title_style(Style::default().fg(Color::White).add_modifier(Modifier::BOLD))
             .borders(Borders::ALL)
-            .border_style(border_style);
+            .border_type(BorderType::Rounded)
+            .border_style(border_style)
+            .padding(Padding::uniform(1));
 
         let mut list_state = ListState::default();
         if focused && !tags.is_empty() {

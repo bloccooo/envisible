@@ -6,7 +6,7 @@ use ratatui::{
     layout::Rect,
     style::{Color, Modifier, Style},
     text::{Line, Span},
-    widgets::{Block, Borders, Paragraph},
+    widgets::{Block, BorderType, Borders, Padding, Paragraph},
     Frame,
 };
 use tokio::sync::mpsc::Sender;
@@ -79,8 +79,11 @@ impl Component for TagFormPage {
     fn render(&self, frame: &mut Frame, area: Rect) {
         let block = Block::default()
             .title(self.title)
+            .title_style(Style::default().fg(Color::White).add_modifier(Modifier::BOLD))
             .borders(Borders::ALL)
-            .border_style(Style::default().fg(Color::Cyan));
+            .border_type(BorderType::Rounded)
+            .border_style(Style::default().fg(Color::DarkGray))
+            .padding(Padding::uniform(1));
 
         let input = &self.field_input;
         let cursor_pos = self.cursor;
@@ -93,15 +96,15 @@ impl Component for TagFormPage {
         let after: String = input.chars().skip(cursor_pos + 1).collect();
 
         let lines = vec![
-            Line::from(""),
             Line::from(vec![Span::styled(
-                "▶ Name ",
+                " Name",
                 Style::default()
-                    .fg(Color::Cyan)
+                    .fg(Color::White)
                     .add_modifier(Modifier::BOLD),
             )]),
+            Line::from(""),
             Line::from(vec![
-                Span::raw("  "),
+                Span::raw(" "),
                 Span::raw(before),
                 Span::styled(at, Style::default().bg(Color::White).fg(Color::Black)),
                 Span::raw(after),

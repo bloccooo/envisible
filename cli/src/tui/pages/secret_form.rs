@@ -6,7 +6,7 @@ use ratatui::{
     layout::{Constraint, Direction, Layout, Rect},
     style::{Color, Modifier, Style},
     text::{Line, Span},
-    widgets::{Block, Borders, Paragraph},
+    widgets::{Block, BorderType, Borders, Paragraph},
     Frame,
 };
 use tokio::sync::mpsc::Sender;
@@ -25,6 +25,13 @@ const SECRET_FIELDS: &[(&str, bool)] = &[
     ("Tags (comma-separated)", false),
 ];
 
+/// Column width reserved for labels in completed rows.
+const LABEL_WIDTH: usize = 14;
+/// Max autocomplete suggestions shown at once.
+const AC_MAX: usize = 5;
+/// Height of the textarea input box (borders + content rows).
+const TEXTAREA_HEIGHT: u16 = 6;
+
 pub struct SecretFormPage {
     actions_tx: Sender<Actions>,
     state: Arc<State>,
@@ -41,7 +48,7 @@ pub struct SecretFormPage {
 }
 
 impl SecretFormPage {
-    pub const DEFAULT_HINT: &'static str = "[Tab] Next field  [Enter] Submit  [Esc] Cancel";
+    pub const DEFAULT_HINT: &'static str = "[↑↓ Tab] Navigate  [Enter] Submit  [Esc] Cancel";
 
     pub fn new(actions_tx: Sender<Actions>, state: Arc<State>) -> Self {
         Self {
@@ -56,7 +63,7 @@ impl SecretFormPage {
             tag_ac_matches: vec![],
             tag_ac_idx: None,
             textarea: TextAreaComponent::new(),
-            title: " New Secret ",
+            title: "New Secret",
         }
     }
 
@@ -85,7 +92,7 @@ impl SecretFormPage {
             tag_ac_matches: vec![],
             tag_ac_idx: None,
             textarea,
-            title: " Edit Secret ",
+            title: "Edit Secret",
         };
         page.update_tag_ac();
         page
@@ -139,13 +146,9 @@ impl SecretFormPage {
         let tags = split_tags(all.get(3).cloned().unwrap_or_default().as_str());
 
         let new_state = if let Some(id) = self.editing_id.clone() {
-            (*self.state)
-                .clone()
-                .with_secret_updated(id, name, value, description, tags)
+            State::cloned(&self.state).with_secret_updated(id, name, value, description, tags)
         } else {
-            (*self.state)
-                .clone()
-                .with_secret_added(name, value, description, tags)
+            State::cloned(&self.state).with_secret_added(name, value, description, tags)
         };
         let _ = self
             .actions_tx
@@ -245,163 +248,214 @@ impl SecretFormPage {
         }
     }
 
+    // ── Rendering ─────────────────────────────────────────────────────────────
+
     fn render_form(&self, frame: &mut Frame, area: Rect) {
-        let block = Block::default()
-            .title(self.title)
+        let form_area = area;
+
+        let step = self.field_idx + 1;
+        let total = SECRET_FIELDS.len();
+        let title = format!(" {} • {} of {} ", self.title, step, total);
+
+        let outer = Block::default()
+            .title(title)
+            .title_style(
+                Style::default()
+                    .fg(Color::White)
+                    .add_modifier(Modifier::BOLD),
+            )
             .borders(Borders::ALL)
-            .border_style(Style::default().fg(Color::Cyan));
+            .border_type(BorderType::Rounded)
+            .border_style(Style::default().fg(Color::DarkGray));
+        let inner = outer.inner(form_area);
+        frame.render_widget(outer, form_area);
+
+        // Autocomplete height (tags field only).
+        let ac_count = if self.field_idx == 3 && !self.tag_ac_matches.is_empty() {
+            self.tag_ac_matches.len().min(AC_MAX) as u16
+                + if self.tag_ac_matches.len() > AC_MAX {
+                    1
+                } else {
+                    0
+                }
+        } else {
+            0
+        };
+
+        // pre  = top padding (1) + completed fields (field_idx × 2)
+        let pre_h = 1 + self.field_idx as u16 * 2;
+        let input_h = if self.is_textarea_field() {
+            TEXTAREA_HEIGHT
+        } else {
+            1
+        };
+        let post_h = (SECRET_FIELDS.len() - self.field_idx - 1) as u16;
+
+        let v_chunks = Layout::default()
+            .direction(Direction::Vertical)
+            .constraints([
+                Constraint::Length(pre_h),    // completed fields + top padding
+                Constraint::Length(1),        // active field label
+                Constraint::Length(1),        // spacing between label and input
+                Constraint::Length(input_h),                          // active input
+                Constraint::Length(if ac_count > 0 { 1 } else { 0 }), // spacing before autocomplete
+                Constraint::Length(ac_count),                          // tag autocomplete
+                Constraint::Length(1),                                 // gap before pending
+                Constraint::Length(post_h),   // pending field labels
+                Constraint::Min(0),
+            ])
+            .split(inner);
+
+        self.render_completed(frame, v_chunks[0]);
+        self.render_active_label(frame, v_chunks[1]);
 
         if self.is_textarea_field() {
-            let inner = block.inner(area);
-            frame.render_widget(block, area);
-            self.render_textarea_form(frame, inner);
-            return;
+            self.textarea
+                .render_area(frame, inset(v_chunks[3], 1, 0), "");
+        } else {
+            self.render_active_input(frame, v_chunks[3]);
         }
 
-        let mut lines: Vec<Line> = vec![Line::from("")];
+        if ac_count > 0 {
+            self.render_autocomplete(frame, v_chunks[5]);
+        }
 
-        for (i, (label, is_secret)) in SECRET_FIELDS.iter().enumerate() {
-            if i < self.field_idx {
-                let value = self.collected_values.get(i).cloned().unwrap_or_default();
-                let display = if *is_secret {
-                    "••••••••".to_string()
-                } else {
-                    value
-                };
-                lines.push(Line::from(vec![
-                    Span::styled(
-                        format!("  {} ", label),
-                        Style::default().fg(Color::DarkGray),
-                    ),
-                    Span::styled(display, Style::default().fg(Color::Green)),
-                ]));
-            } else if i == self.field_idx {
-                lines.push(Line::from(vec![Span::styled(
-                    format!("▶ {} ", label),
+        self.render_pending(frame, v_chunks[7]);
+    }
+
+    fn render_completed(&self, frame: &mut Frame, area: Rect) {
+        if area.height == 0 {
+            return;
+        }
+        // First line is always blank (top padding inside the card).
+        let mut lines: Vec<Line> = vec![Line::from("")];
+        for i in 0..self.field_idx {
+            let (label, is_secret) = SECRET_FIELDS[i];
+            let raw = self.collected_values.get(i).cloned().unwrap_or_default();
+            let display = if is_secret && !raw.is_empty() {
+                "••••••••".to_string()
+            } else {
+                raw
+            };
+
+            lines.push(Line::from(vec![
+                Span::styled(" ", Style::default().fg(Color::Green)),
+                Span::styled(
+                    format!("{label:<LABEL_WIDTH$}"),
+                    Style::default().fg(Color::DarkGray),
+                ),
+                Span::styled(display, Style::default().fg(Color::White)),
+            ]));
+
+            lines.push(Line::from(""));
+        }
+        frame.render_widget(Paragraph::new(lines), area);
+    }
+
+    fn render_active_label(&self, frame: &mut Frame, area: Rect) {
+        let label = SECRET_FIELDS[self.field_idx].0;
+        frame.render_widget(
+            Paragraph::new(Line::from(vec![
+                Span::styled(
+                    " ",
                     Style::default()
                         .fg(Color::Cyan)
                         .add_modifier(Modifier::BOLD),
+                ),
+                Span::styled(
+                    label,
+                    Style::default()
+                        .fg(Color::White)
+                        .add_modifier(Modifier::BOLD),
+                ),
+            ])),
+            area,
+        );
+    }
+
+    fn render_active_input(&self, frame: &mut Frame, area: Rect) {
+        let (_, is_secret) = SECRET_FIELDS[self.field_idx];
+        let input = &self.field_input;
+        let char_count = input.chars().count();
+        let cursor_pos = self.cursor;
+
+        let before: String = if is_secret {
+            "•".repeat(cursor_pos)
+        } else {
+            input.chars().take(cursor_pos).collect()
+        };
+        let at = if is_secret {
+            if cursor_pos < char_count {
+                "•".to_string()
+            } else {
+                " ".to_string()
+            }
+        } else {
+            input
+                .chars()
+                .nth(cursor_pos)
+                .map(|c| c.to_string())
+                .unwrap_or_else(|| " ".to_string())
+        };
+        let after: String = if is_secret {
+            "•".repeat(char_count.saturating_sub(cursor_pos + 1))
+        } else {
+            input.chars().skip(cursor_pos + 1).collect()
+        };
+
+        frame.render_widget(
+            Paragraph::new(Line::from(vec![
+                Span::raw(" "),
+                Span::raw(before),
+                Span::styled(at, Style::default().bg(Color::White).fg(Color::Black)),
+                Span::raw(after),
+            ])),
+            area,
+        );
+    }
+
+    fn render_autocomplete(&self, frame: &mut Frame, area: Rect) {
+        if area.height == 0 {
+            return;
+        }
+        let ac_area = inset(area, 1, 0);
+        let mut lines: Vec<Line> = vec![];
+        for (j, tag) in self.tag_ac_matches.iter().take(AC_MAX).enumerate() {
+            if self.tag_ac_idx == Some(j) {
+                lines.push(Line::from(vec![Span::styled(
+                    tag.as_str(),
+                    Style::default().fg(Color::White),
                 )]));
-
-                let input = &self.field_input;
-                let display = if *is_secret {
-                    "•".repeat(input.chars().count())
-                } else {
-                    input.clone()
-                };
-                let cursor_pos = self.cursor;
-                let before: String = if *is_secret {
-                    "•".repeat(cursor_pos)
-                } else {
-                    input.chars().take(cursor_pos).collect()
-                };
-                let at = display
-                    .chars()
-                    .nth(cursor_pos)
-                    .map(|c| c.to_string())
-                    .unwrap_or_else(|| " ".to_string());
-                let after: String = if *is_secret {
-                    "•".repeat(input.chars().count().saturating_sub(cursor_pos + 1))
-                } else {
-                    input.chars().skip(cursor_pos + 1).collect()
-                };
-
-                lines.push(Line::from(vec![
-                    Span::raw("  "),
-                    Span::raw(before),
-                    Span::styled(at, Style::default().bg(Color::White).fg(Color::Black)),
-                    Span::raw(after),
-                ]));
-
-                if i == 3 && !self.tag_ac_matches.is_empty() {
-                    const MAX_VISIBLE: usize = 5;
-                    for (j, tag) in self.tag_ac_matches.iter().take(MAX_VISIBLE).enumerate() {
-                        if self.tag_ac_idx == Some(j) {
-                            lines.push(Line::from(vec![
-                                Span::raw("  "),
-                                Span::styled(
-                                    format!("▶ {tag}"),
-                                    Style::default().bg(Color::Cyan).fg(Color::Black),
-                                ),
-                            ]));
-                        } else {
-                            lines.push(Line::from(vec![
-                                Span::raw("  "),
-                                Span::styled(
-                                    format!("  {tag}"),
-                                    Style::default().fg(Color::DarkGray),
-                                ),
-                            ]));
-                        }
-                    }
-                    if self.tag_ac_matches.len() > MAX_VISIBLE {
-                        lines.push(Line::from(Span::styled(
-                            format!("  … {} more", self.tag_ac_matches.len() - MAX_VISIBLE),
-                            Style::default().fg(Color::DarkGray),
-                        )));
-                    }
-                }
             } else {
                 lines.push(Line::from(vec![Span::styled(
-                    format!("  {} ", label),
+                    tag.as_str(),
                     Style::default().fg(Color::DarkGray),
                 )]));
             }
-            lines.push(Line::from(""));
         }
-
-        frame.render_widget(Paragraph::new(lines).block(block), area);
+        if self.tag_ac_matches.len() > AC_MAX {
+            lines.push(Line::from(Span::styled(
+                format!("   +{} more", self.tag_ac_matches.len() - AC_MAX),
+                Style::default().fg(Color::DarkGray),
+            )));
+        }
+        frame.render_widget(Paragraph::new(lines), ac_area);
     }
 
-    fn render_textarea_form(&self, frame: &mut Frame, area: Rect) {
-        let header_height = (1 + self.field_idx * 2 + 1) as u16;
-
-        let chunks = Layout::default()
-            .direction(Direction::Vertical)
-            .constraints([
-                Constraint::Length(header_height),
-                Constraint::Length(6),
-                Constraint::Min(0),
-            ])
-            .split(area);
-
-        let mut header_lines: Vec<Line> = vec![Line::from("")];
-        for i in 0..self.field_idx {
-            let (label, is_secret) = SECRET_FIELDS[i];
-            let value = self.collected_values.get(i).cloned().unwrap_or_default();
-            let display = if is_secret {
-                "••••••••".to_string()
-            } else {
-                value
-            };
-            header_lines.push(Line::from(vec![
-                Span::styled(
-                    format!("  {} ", label),
-                    Style::default().fg(Color::DarkGray),
-                ),
-                Span::styled(display, Style::default().fg(Color::Green)),
-            ]));
-            header_lines.push(Line::from(""));
+    fn render_pending(&self, frame: &mut Frame, area: Rect) {
+        let count = SECRET_FIELDS.len() - self.field_idx - 1;
+        if count == 0 || area.height == 0 {
+            return;
         }
-        header_lines.push(Line::from(vec![Span::styled(
-            format!("▶ {} ", SECRET_FIELDS[self.field_idx].0),
-            Style::default()
-                .fg(Color::Cyan)
-                .add_modifier(Modifier::BOLD),
-        )]));
-        frame.render_widget(Paragraph::new(header_lines), chunks[0]);
-
-        self.textarea.render_area(frame, chunks[1], "Value");
-
-        let mut footer_lines: Vec<Line> = vec![];
+        let mut lines: Vec<Line> = vec![];
         for i in (self.field_idx + 1)..SECRET_FIELDS.len() {
-            footer_lines.push(Line::from(vec![Span::styled(
-                format!("  {} ", SECRET_FIELDS[i].0),
-                Style::default().fg(Color::DarkGray),
-            )]));
+            let (label, _) = SECRET_FIELDS[i];
+            lines.push(Line::from(vec![
+                Span::raw(" "),
+                Span::styled(label, Style::default().fg(Color::DarkGray)),
+            ]));
         }
-
-        frame.render_widget(Paragraph::new(footer_lines), chunks[2]);
+        frame.render_widget(Paragraph::new(lines), area);
     }
 }
 
@@ -429,8 +483,8 @@ impl Component for SecretFormPage {
                     TextAreaEvent::Changed => {}
                 }
             } else {
-                let on_tags_field = self.field_idx == 3;
-                if on_tags_field && !self.tag_ac_matches.is_empty() {
+                let on_tags = self.field_idx == 3;
+                if on_tags && !self.tag_ac_matches.is_empty() {
                     match key.code {
                         KeyCode::Down => {
                             self.tag_ac_idx = Some(
@@ -485,4 +539,15 @@ fn split_tags(s: &str) -> Vec<String> {
         .map(|t| t.trim().to_string())
         .filter(|t| !t.is_empty())
         .collect()
+}
+
+/// Shrinks `area` by `left` columns on the left and `right` on the right.
+fn inset(area: Rect, left: u16, right: u16) -> Rect {
+    let shrink = left.saturating_add(right).min(area.width);
+    Rect {
+        x: area.x + left.min(area.width),
+        y: area.y,
+        width: area.width.saturating_sub(shrink),
+        height: area.height,
+    }
 }

@@ -6,7 +6,7 @@ use ratatui::{
     layout::Rect,
     style::{Color, Modifier, Style},
     text::{Line, Span},
-    widgets::{Block, Borders, Paragraph, Wrap},
+    widgets::{Block, BorderType, Borders, Padding, Paragraph, Wrap},
     Frame,
 };
 use tokio::sync::mpsc::Sender;
@@ -47,9 +47,8 @@ impl InvitePage {
 impl Component for InvitePage {
     fn render(&self, frame: &mut Frame, area: Rect) {
         let lines = vec![
-            Line::from(""),
             Line::from(vec![Span::styled(
-                "Invite Token",
+                "Token",
                 Style::default()
                     .fg(Color::Cyan)
                     .add_modifier(Modifier::BOLD),
@@ -77,8 +76,15 @@ impl Component for InvitePage {
 
         let block = Block::default()
             .title(" Invite ")
+            .title_style(
+                Style::default()
+                    .fg(Color::White)
+                    .add_modifier(Modifier::BOLD),
+            )
             .borders(Borders::ALL)
-            .border_style(Style::default().fg(Color::Cyan));
+            .border_type(BorderType::Rounded)
+            .border_style(Style::default().fg(Color::DarkGray))
+            .padding(Padding::uniform(1));
 
         frame.render_widget(
             Paragraph::new(lines)

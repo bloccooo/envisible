@@ -3,7 +3,7 @@ use ratatui::{
     layout::Rect,
     style::{Color, Style},
     text::{Line, Span},
-    widgets::{Block, Borders, Paragraph},
+    widgets::Paragraph,
     Frame,
 };
 
@@ -133,23 +133,16 @@ impl TextAreaComponent {
         TextAreaEvent::Changed
     }
 
-    pub fn render_area(&self, frame: &mut Frame, area: Rect, title: &str) {
-        let viewport = area.height.saturating_sub(2) as usize;
+    pub fn render_area(&self, frame: &mut Frame, area: Rect, _title: &str) {
+        // Reserve the last row for scroll indicators; content gets the rest.
+        let content_height = area.height.saturating_sub(1);
+        let viewport = content_height as usize;
 
-        let scroll_indicator = match (self.scroll > 0, self.scroll + viewport < self.lines.len()) {
-            (true, true) => " ▲▼",
-            (true, false) => " ▲",
-            (false, true) => " ▼",
-            (false, false) => "",
-        };
+        let can_up = self.scroll > 0;
+        let can_down = self.scroll + viewport < self.lines.len();
 
-        let block = Block::default()
-            .title(format!(" {title}{scroll_indicator} "))
-            .borders(Borders::ALL)
-            .border_style(Style::default().fg(Color::White));
-        let inner = block.inner(area);
-        frame.render_widget(block, area);
-
+        // Content lines.
+        let content_area = Rect { height: content_height, ..area };
         let visible: Vec<Line> = (self.scroll..self.scroll + viewport)
             .map(|r| {
                 if r >= self.lines.len() {
@@ -173,8 +166,27 @@ impl TextAreaComponent {
                 ])
             })
             .collect();
+        frame.render_widget(Paragraph::new(visible), content_area);
 
-        frame.render_widget(Paragraph::new(visible), inner);
+        // Scroll indicator row, always below content.
+        let indicator = match (can_up, can_down) {
+            (true, true) => Some("▲▼"),
+            (true, false) => Some("▲"),
+            (false, true) => Some("▼"),
+            (false, false) => None,
+        };
+        if let Some(text) = indicator {
+            let indicator_area = Rect {
+                x: area.x,
+                y: area.y + content_height,
+                width: area.width,
+                height: 1,
+            };
+            frame.render_widget(
+                Paragraph::new(Span::styled(text, Style::default().fg(Color::DarkGray))),
+                indicator_area,
+            );
+        }
     }
 
     fn update_scroll(&mut self) {
