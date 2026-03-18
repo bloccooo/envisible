@@ -14,6 +14,20 @@ curl -fsSL https://blocco.studio/envi/install.sh | bash
 
 Supports macOS (Apple Silicon & Intel) and Linux (x64). Installs to `/usr/local/bin/envi`.
 
+## Multi-user
+
+There is no central server. Each member owns a single file in the shared storage backend, written exclusively by them:
+
+```
+_envi/<vault-id>/<member-id>.amrg
+```
+
+When a member syncs, they fetch every file under `_envi/<vault-id>/` — one per member — and merge them all into a single consistent view using [Automerge](https://automerge.org), a CRDT library that resolves concurrent edits automatically. The result is then saved to a local cache so the vault is readable offline.
+
+Before merging, each file is verified: it must carry a valid Ed25519 signature produced by the member who owns it. Files with a missing or invalid signature are silently dropped, so a compromised or malicious file in storage cannot corrupt the merged state of other members.
+
+Because every member writes only their own file, there are no write conflicts and no need for locking or coordination. Two members editing secrets at the same time will each push their own file; the next sync for any member will merge both into one consistent view.
+
 ## Encryption
 
 Secrets are encrypted with AES-256-GCM using a shared workspace key (DEK). Each member holds their own copy of the DEK, wrapped with a personal X25519 key pair derived from their passphrase, workspace ID, and a random member ID via Argon2id. The passphrase never leaves the device.
