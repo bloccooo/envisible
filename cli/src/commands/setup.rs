@@ -8,8 +8,8 @@ use lib::{
         compute_invite_mac, compute_key_mac, derive_private_key,
         derive_signing_key, generate_dek, get_public_key, wrap_dek,
     },
-    error::{Error, Result},
-    invite::parse_invite,
+    error::Result,
+    invite::{parse_invite, verify_genesis_anchor},
     storage::StorageConfig,
     store::Store,
     types::{EnviDocument, Member},
@@ -158,17 +158,9 @@ pub async fn run(invite_token_arg: Option<String>) -> Result<()> {
         // Genesis trust anchor: verify the inviter's signing key in the fetched
         // document matches the fingerprint embedded in the invite token.
         // This detects a forged or swapped document on first pull.
-        if let (Some(expected_signing_key), Some(inviter_id)) =
-            (&payload.inviter_signing_key, &payload.inviter_id)
         {
             let state_check: EnviDocument = autosurgeon::hydrate(&doc)?;
-            let inviter = state_check
-                .members
-                .get(inviter_id)
-                .ok_or(Error::GenesisKeyMismatch)?;
-            if &inviter.signing_key != expected_signing_key {
-                return Err(Error::GenesisKeyMismatch);
-            }
+            verify_genesis_anchor(&payload, &state_check.members)?;
         }
 
         let private_key =

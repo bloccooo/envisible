@@ -88,6 +88,28 @@ pub fn generate_invite(
     Ok(format!("{INVITE_PREFIX}{b64}"))
 }
 
+/// Verify the genesis trust anchor: check that the inviter exists in the fetched document
+/// and their signing key matches the one embedded in the token.
+/// Returns `Err(GenesisKeyMismatch)` if the inviter is absent or the key differs.
+/// Skips silently if the token predates the signing key feature (no `inviter_signing_key`).
+pub fn verify_genesis_anchor(
+    payload: &InvitePayload,
+    doc_members: &std::collections::HashMap<String, crate::types::Member>,
+) -> Result<()> {
+    let (Some(expected_key), Some(inviter_id)) =
+        (&payload.inviter_signing_key, &payload.inviter_id)
+    else {
+        return Ok(()); // old token — skip
+    };
+    let inviter = doc_members
+        .get(inviter_id)
+        .ok_or(crate::error::Error::GenesisKeyMismatch)?;
+    if &inviter.signing_key != expected_key {
+        return Err(crate::error::Error::GenesisKeyMismatch);
+    }
+    Ok(())
+}
+
 pub fn parse_invite(link: &str) -> Result<InvitePayload> {
     let b64 = link
         .strip_prefix(INVITE_PREFIX)
