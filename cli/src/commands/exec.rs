@@ -20,7 +20,13 @@ pub fn find_vault(vaults: Vec<VaultConfig>, name: &str) -> Result<VaultConfig> {
 pub fn filter_by_tag(secrets: Vec<PlaintextSecret>, tag: Option<&str>) -> Vec<PlaintextSecret> {
     secrets
         .into_iter()
-        .filter(|s| tag.map(|t| s.tags.iter().any(|st| st == t)).unwrap_or(true))
+        .filter(|s| {
+            tag.map(|t| {
+                let tags: Vec<&str> = t.split(',').map(str::trim).collect();
+                s.tags.iter().any(|st| tags.contains(&st.as_str()))
+            })
+            .unwrap_or(true)
+        })
         .collect()
 }
 
@@ -86,7 +92,7 @@ pub async fn exec(
     if dry_run {
         let label = tag_filter
             .as_deref()
-            .map(|t| format!("tag \"{t}\""))
+            .map(|t| format!("tags \"{}\"", t.split(',').map(str::trim).collect::<Vec<_>>().join(", ")))
             .unwrap_or_else(|| "all secrets".to_string());
         println!("\nEnv vars that would be injected ({label}):\n");
         for (k, v) in &env_vars {
