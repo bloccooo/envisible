@@ -107,12 +107,12 @@ tag = "myapp"
 vault = "myvault"
 ```
 
-### `envi sync`
+### `envi force-sync`
 
 Pull the latest state from the storage backend and push local changes.
 
 ```sh
-envi sync
+envi force-sync
 ```
 
 ### `envi logout`
@@ -125,12 +125,12 @@ Credentials are scoped per terminal session (TTY), so logging out in one termina
 envi logout
 ```
 
-### `envi clear`
+### `envi wipe`
 
 Remove all local data: stop the agent, delete the local cache, and remove the config from the OS keychain. Use this to fully reset the installation.
 
 ```sh
-envi clear
+envi wipe
 ```
 
 ## Security roadmap
