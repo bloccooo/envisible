@@ -17,4 +17,5 @@ pub enum Actions {
     Exit,
     SetState(Arc<State>),
     NavigateTo(Route),
+    Sync,
 }

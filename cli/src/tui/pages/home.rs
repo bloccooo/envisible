@@ -45,7 +45,7 @@ pub struct HomePage {
 
 impl HomePage {
     pub const DEFAULT_HINT: &'static str =
-        "[n] New  [e] Edit  [d] Delete  [c] Copy  [v] Reveal  [Tab] Switch  [q] Quit";
+        "[n] New  [e] Edit  [d] Delete  [c] Copy  [v] Reveal  [s] Sync  [Tab] Switch  [q] Quit";
 
     pub fn new(actions_tx: Sender<Actions>, state: Arc<State>) -> Self {
         let mut page = Self {
@@ -104,7 +104,7 @@ impl HomePage {
                     Self::DEFAULT_HINT
                 }
             }
-            Focus::Tags => "[n] New  [e] Rename  [s] Assign  [d] Delete  [Tab] Switch  [q] Quit",
+            Focus::Tags => "[n] New  [e] Rename  [a] Assign  [d] Delete  [s] Sync  [Tab] Switch  [q] Quit",
             Focus::Members => {
                 let pending = self
                     .state
@@ -113,9 +113,9 @@ impl HomePage {
                     .map(|m| m.is_pending())
                     .unwrap_or(false);
                 if pending {
-                    "[g] Grant  [d] Remove  [i] Invite  [Tab] Switch  [q] Quit"
+                    "[g] Grant  [d] Remove  [i] Invite  [s] Sync  [Tab] Switch  [q] Quit"
                 } else {
-                    "[d] Remove  [i] Invite  [Tab] Switch  [q] Quit"
+                    "[d] Remove  [i] Invite  [s] Sync  [Tab] Switch  [q] Quit"
                 }
             }
         }
@@ -141,7 +141,7 @@ impl HomePage {
                 .clone()
                 .with_tag_assignments(&tag, &self.secrets.ts_selected_ids)
                 .with_footer_hint(
-                    "[n] New  [e] Rename  [s] Assign  [d] Delete  [Tab] Switch  [q] Quit",
+                    "[n] New  [e] Rename  [a] Assign  [d] Delete  [s] Sync  [Tab] Switch  [q] Quit",
                 ),
         );
         let _ = self.actions_tx.send(Actions::SetState(new_state)).await;
@@ -210,7 +210,7 @@ impl Component for HomePage {
                     self.secrets.ts_selected_ids.clear();
                     self.set_focus(Focus::Tags);
                     self.send_hint(
-                        "[n] New  [e] Rename  [s] Assign  [d] Delete  [Tab] Switch  [q] Quit",
+                        "[n] New  [e] Rename  [a] Assign  [d] Delete  [s] Sync  [Tab] Switch  [q] Quit",
                     )
                     .await;
                     return EventResult::Consumed;
@@ -447,7 +447,7 @@ impl Component for HomePage {
                     }
                 }
             }
-            KeyCode::Char('s') => {
+            KeyCode::Char('a') => {
                 if self.focus == Focus::Tags {
                     let tags = self.state.tags();
                     if let Some(tag) = tags.get(self.tags.tag_idx).cloned() {
@@ -464,6 +464,9 @@ impl Component for HomePage {
                             .await;
                     }
                 }
+            }
+            KeyCode::Char('s') => {
+                let _ = self.actions_tx.send(Actions::Sync).await;
             }
             KeyCode::Char('g') => {
                 if self.focus == Focus::Members {

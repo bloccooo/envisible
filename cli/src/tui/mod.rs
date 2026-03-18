@@ -105,6 +105,7 @@ async fn run_app(
     let mut state = initial_state;
     let mut router = Router::new(tx.clone(), state.clone());
     let mut persist_task: Option<JoinHandle<bool>> = None;
+    let mut sync_task: Option<JoinHandle<Option<Vec<u8>>>> = None;
 
     loop {
         // Check if the background persist task has completed.
@@ -115,6 +116,28 @@ async fn run_app(
                     FooterStatus::Ok("✓ saved".to_string())
                 } else {
                     FooterStatus::Error("save failed".to_string())
+                };
+                state = Arc::new(State::cloned(&state).with_footer_status(status));
+                router.update(state.clone()).await;
+            }
+        }
+
+        // Check if the background sync task has completed.
+        if let Some(handle) = &sync_task {
+            if handle.is_finished() {
+                let result = sync_task.take().unwrap().await.unwrap_or(None);
+                let status = match result {
+                    Some(bytes) => match AutoCommit::load(&bytes) {
+                        Ok(mut pulled) => {
+                            let _ = doc.merge(&mut pulled);
+                            let new_state = derive_state(&doc, &session, &state);
+                            state = Arc::new(new_state.with_footer_status(FooterStatus::Ok("✓ synced".to_string())));
+                            router.update(state.clone()).await;
+                            continue;
+                        }
+                        Err(_) => FooterStatus::Error("sync failed".to_string()),
+                    },
+                    None => FooterStatus::Error("sync failed".to_string()),
                 };
                 state = Arc::new(State::cloned(&state).with_footer_status(status));
                 router.update(state.clone()).await;
@@ -166,6 +189,16 @@ async fn run_app(
                 }
                 Actions::NavigateTo(route) => {
                     router.navigate(route);
+                }
+                Actions::Sync => {
+                    if sync_task.is_none() {
+                        state = Arc::new(State::cloned(&state).with_footer_status(FooterStatus::Syncing));
+                        router.update(state.clone()).await;
+                        let store_clone = Arc::clone(&store);
+                        sync_task = Some(tokio::spawn(async move {
+                            store_clone.pull().await.ok().map(|mut d| d.save())
+                        }));
+                    }
                 }
             }
         }
