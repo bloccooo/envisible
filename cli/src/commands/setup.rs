@@ -84,27 +84,6 @@ pub async fn run(invite_token_arg: Option<String>) -> Result<()> {
 
     let mut config = config.unwrap();
 
-    println!(
-        "  {} {}",
-        style("→").cyan(),
-        style("Set a passphrase to protect your keys.").bold()
-    );
-    println!("  {}", style("This never leaves your device.").dim());
-    println!();
-    println!(
-        "  {} {}",
-        style("⚠").yellow(),
-        style("Losing your passphrase may result in permanently losing access to your vault content.").yellow()
-    );
-    println!(
-        "  {}",
-        style("Memorise it or store it in a secure password manager. Never save it unencrypted on any device.").dim()
-    );
-    println!();
-
-    let passphrase = crate::passphrase::prompt_new_passphrase()?;
-    println!();
-
     // Choose: create new vault or join via invite
     let action = if invite_token_arg.is_some() {
         1 // import
@@ -162,6 +141,26 @@ pub async fn run(invite_token_arg: Option<String>) -> Result<()> {
             let state_check: EnviDocument = autosurgeon::hydrate(&doc)?;
             verify_genesis_anchor(&payload, &state_check.members)?;
         }
+
+        println!(
+            "  {} {}",
+            style("→").cyan(),
+            style("Set a passphrase to protect your keys.").bold()
+        );
+        println!("  {}", style("This never leaves your device.").dim());
+        println!();
+        println!(
+            "  {} {}",
+            style("⚠").yellow(),
+            style("Losing your passphrase may result in permanently losing access to your vault content.").yellow()
+        );
+        println!(
+            "  {}",
+            style("Memorise it or store it in a secure password manager. Never save it unencrypted on any device.").dim()
+        );
+        println!();
+        let passphrase = crate::passphrase::prompt_new_passphrase()?;
+        println!();
 
         let private_key =
             derive_private_key(&passphrase, &payload.vault.id, &config.member_id)?;
@@ -264,6 +263,27 @@ pub async fn run(invite_token_arg: Option<String>) -> Result<()> {
             storage: storage_config,
         });
         write_config(&config).await?;
+
+        println!();
+        println!(
+            "  {} {}",
+            style("→").cyan(),
+            style("Set a passphrase to protect your keys.").bold()
+        );
+        println!("  {}", style("This never leaves your device.").dim());
+        println!();
+        println!(
+            "  {} {}",
+            style("⚠").yellow(),
+            style("Losing your passphrase may result in permanently losing access to your vault content.").yellow()
+        );
+        println!(
+            "  {}",
+            style("Memorise it or store it in a secure password manager. Never save it unencrypted on any device.").dim()
+        );
+        println!();
+        let passphrase = crate::passphrase::prompt_new_passphrase()?;
+        println!();
 
         let pb = spinner("Initializing vault…");
         let mut doc = store.pull().await?;
