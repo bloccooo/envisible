@@ -29,6 +29,9 @@ pub enum Error {
     #[error("invite token expired")]
     InviteLinkExpired,
 
+    #[error("genesis key mismatch — the inviter's signing key in the document does not match the invite token; the workspace may have been tampered with")]
+    GenesisKeyMismatch,
+
     #[error("automerge error: {0}")]
     Automerge(#[from] automerge::AutomergeError),
 

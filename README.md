@@ -22,22 +22,40 @@ Each member maintains their own Automerge document, signed with an Ed25519 key b
 
 ### Invite flow
 
-When a member generates an invite link, a random 16-byte nonce is used to deterministically derive an ephemeral X25519 keypair via HKDF from the inviter's private key:
+**Generating the token (inviter)**
+
+A random 16-byte nonce is used to deterministically derive an ephemeral X25519 keypair via HKDF from the inviter's private key:
 
 ```
 invite_priv = HKDF(inviter_x25519_priv, salt=nonce, info="bkey-invite-v1")
 invite_pub  = X25519_pubkey(invite_priv)
 ```
 
-The token contains `invite_pub`, the inviter's member ID, and the nonce. Nothing is stored locally — the invite private key can always be re-derived from the inviter's session key and the nonce.
+The token contains `invite_pub`, the inviter's member ID, the nonce, and the inviter's Ed25519 verifying key. The entire payload is then signed with the inviter's Ed25519 private key:
 
-When the invitee registers, they perform an X25519 key exchange with `invite_pub` to derive a shared secret, then compute:
+```
+token_signature = Ed25519_sign(inviter_signing_priv, JSON(payload))
+```
+
+Nothing is stored locally — the invite private key can always be re-derived from the inviter's session key and the nonce.
+
+**Joining (invitee)**
+
+On receiving the token, the invitee first verifies `token_signature` against `inviter_signing_key`. This proves the token was produced by the holder of that key and has not been tampered with.
+
+The invitee then fetches the workspace document and checks that `members[inviter_id].signing_key` matches `inviter_signing_key` from the token. This proves the key belongs to a real, existing member of the workspace — an attacker controlling rogue storage cannot satisfy this check without holding the inviter's private key.
+
+Finally, the invitee derives their own keypair from their passphrase, performs an X25519 key exchange with `invite_pub` to derive a shared secret, and computes:
 
 ```
 invite_mac = HMAC-SHA256(shared_secret, member_id || ":" || public_key || ":" || signing_key)
 ```
 
-This MAC and the nonce are stored in their pending member record. When the inviter reviews the request, they re-derive `invite_priv` from the nonce, recompute the shared secret, and verify the MAC — confirming that the public key in the record is exactly the one the invitee registered, and was not swapped in storage by an attacker.
+This MAC and the nonce are stored in their pending member record.
+
+**Granting access (inviter)**
+
+When the inviter reviews the pending request, they re-derive `invite_priv` from the nonce (using their session key — nothing was stored locally), recompute the shared secret via ECDH, and verify the MAC — confirming that the public key in the record is exactly the one the invitee registered, and was not swapped in storage by an attacker.
 
 ## Commands
 
@@ -127,8 +145,7 @@ The current implementation uses sound cryptographic primitives (AES-256-GCM, X25
 - ~~**Remove passphrase persistence**~~ — done. The passphrase is never written to disk; the derived key is held only in RAM by a short-lived background agent and cleared on `envi logout`.
 - ~~**Password reuse across members**~~ — fixed. Private keys are now derived from `(passphrase, workspace_id, member_id)` where `member_id` is a random UUID generated at setup. Key material is bound to a specific member identity, so knowing another member's passphrase is not sufficient to derive their key.
 - ~~**Authenticated CRDT documents**~~ — done. Each member's Automerge document is signed with an Ed25519 key before being pushed to storage. All files must be signed — unsigned files are rejected. Pending members are excluded from the canonical bytes so a new member registering their public key does not invalidate the existing signature. Member public and signing keys are protected by a per-member HMAC-SHA256 keyed by the shared DEK, so key substitution is detectable by any DEK holder.
-- **Genesis trust anchor** — the first time a member pulls a workspace, they have no prior state to verify signing keys against (TOFU). A future version will embed a signing key fingerprint in the invite link so the first pull can be verified against the invite.
-- **Signed invite links** — invite links will be signed by the issuing member's private key. Peers will verify the signature on join, ensuring the invite was issued by a legitimate workspace member and preventing forged or tampered links.
+- ~~**Genesis trust anchor**~~ — done. The invite token now embeds the inviter's Ed25519 verifying key. On first pull, the invitee checks that the inviter's entry in the fetched document carries the same signing key as the token. Since the token is shared over a trusted channel, this pins the inviter's identity and detects a forged or swapped document before the invitee registers.
 - ~~**Member identity verification**~~ — done. The invite flow now uses an X25519 key exchange between the inviter's derived ephemeral key and the invitee's public key to produce a shared secret that neither party needs to transmit. The invitee computes an HMAC over their own public and signing keys; the inviter re-derives the shared secret on review and verifies the MAC, detecting any key substitution at the storage layer.
 - **Single-use, expiring invite links** — invite links currently have no expiry and can be reused indefinitely. Each link already carries a unique nonce (binding it to a specific ephemeral key), but a future version will add explicit expiry and enforce single-use so that replayed or leaked links cannot register new members.
 - **Scoped secret injection** — `envi exec` will require secrets to be explicitly declared (e.g. in the `.envi` file) rather than injecting the full workspace vault, limiting the blast radius of prompt-injection attacks against AI agents.
