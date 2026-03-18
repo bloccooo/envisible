@@ -86,7 +86,7 @@ pub async fn run(invite_token_arg: Option<String>) -> Result<()> {
 
     // Choose: create new vault or join via invite
     let action = if invite_token_arg.is_some() {
-        1 // import
+        1 // join via token
     } else {
         println!(
             "  {} {}",
@@ -98,7 +98,8 @@ pub async fn run(invite_token_arg: Option<String>) -> Result<()> {
             .with_prompt(format!("  {}", style("Action").bold()))
             .items(&[
                 "Create a new vault",
-                "Join an existing vault (invite token)",
+                "Join an existing vault — invite token",
+                "Join an existing vault — configure storage manually",
             ])
             .default(0)
             .interact()
@@ -107,7 +108,142 @@ pub async fn run(invite_token_arg: Option<String>) -> Result<()> {
 
     println!();
 
-    if action == 1 {
+    if action == 2 {
+        // Join by manually configuring storage credentials
+        println!(
+            "  {} {}",
+            style("→").cyan(),
+            style("Configure the storage backend for the existing vault.").bold()
+        );
+        println!();
+
+        let storage_config = collect_storage_config()?;
+
+        // Discover available vaults by listing `_envi/` in the storage backend
+        let pb = spinner("Scanning storage for vaults…");
+        let backend = lib::storage::StorageBackend::new(&storage_config)?;
+        let vault_ids = backend.list_vault_ids().await?;
+        done(pb, "Storage connected");
+
+        if vault_ids.is_empty() {
+            return Err(lib::error::Error::Other(
+                "No vaults found at the configured storage location.".to_string(),
+            ));
+        }
+
+        // Pull each vault doc to get its name, then let user pick one
+        let mut vault_options: Vec<(String, String)> = vec![]; // (id, name)
+        for id in &vault_ids {
+            let store = Store::new(id, &config.member_id, &storage_config)?;
+            if let Ok(doc) = store.pull().await {
+                let state: lib::types::EnviDocument = autosurgeon::hydrate(&doc)?;
+                let name = if state.name.is_empty() { id.clone() } else { state.name.clone() };
+                vault_options.push((id.clone(), name));
+            }
+        }
+
+        if vault_options.is_empty() {
+            return Err(lib::error::Error::Other(
+                "Could not read any vault from the configured storage location.".to_string(),
+            ));
+        }
+
+        let vault_id;
+        let vault_name;
+        if vault_options.len() == 1 {
+            vault_id = vault_options[0].0.clone();
+            vault_name = vault_options[0].1.clone();
+        } else {
+            let labels: Vec<String> = vault_options
+                .iter()
+                .map(|(id, name)| format!("{name}  ({})", &id[..8]))
+                .collect();
+            println!();
+            let idx = Select::new()
+                .with_prompt(format!("  {}", style("Select vault").bold()))
+                .items(&labels)
+                .default(0)
+                .interact()
+                .map_err(|e| lib::error::Error::Other(e.to_string()))?;
+            vault_id = vault_options[idx].0.clone();
+            vault_name = vault_options[idx].1.clone();
+        }
+
+        println!();
+        println!(
+            "  {} Found vault {}",
+            style("✓").green().bold(),
+            style(&vault_name).cyan().bold(),
+        );
+        println!();
+
+        let store = Store::new(&vault_id, &config.member_id, &storage_config)?;
+        let mut doc = store.pull().await?;
+
+        println!(
+            "  {} {}",
+            style("→").cyan(),
+            style("Set a passphrase to protect your keys.").bold()
+        );
+        println!("  {}", style("This never leaves your device.").dim());
+        println!();
+        println!(
+            "  {} {}",
+            style("⚠").yellow(),
+            style("Losing your passphrase may result in permanently losing access to your vault content.").yellow()
+        );
+        println!(
+            "  {}",
+            style("Memorise it or store it in a secure password manager. Never save it unencrypted on any device.").dim()
+        );
+        println!();
+        let passphrase = crate::passphrase::prompt_new_passphrase()?;
+        println!();
+
+        let private_key = derive_private_key(&passphrase, &vault_id, &config.member_id)?;
+        let public_key = get_public_key(&private_key);
+        let public_key_b64 = B64.encode(public_key);
+        let signing_key = derive_signing_key(&private_key);
+        let signing_public_key = B64.encode(signing_key.verifying_key().to_bytes());
+
+        config.vaults.push(VaultConfig {
+            id: vault_id.clone(),
+            name: vault_name.clone(),
+            storage: storage_config,
+        });
+        write_config(&config).await?;
+
+        let mut state: lib::types::EnviDocument = autosurgeon::hydrate(&doc)?;
+        state.members.insert(
+            config.member_id.clone(),
+            lib::types::Member {
+                id: config.member_id.clone(),
+                email: config.member_name.clone(),
+                public_key: public_key_b64,
+                signing_key: signing_public_key,
+                key_mac: String::new(),
+                wrapped_dek: String::new(),
+                invite_mac: String::new(),
+                invite_nonce: String::new(),
+            },
+        );
+        reconcile(&mut doc, &state)?;
+
+        let pb = spinner("Registering your keys…");
+        store.persist(&mut doc, &signing_key).await?;
+        done(pb, "Registered");
+
+        println!();
+        println!(
+            "  {} Joined {}",
+            style("✓").green().bold(),
+            style(&vault_name).cyan().bold(),
+        );
+        println!(
+            "  {} An existing member needs to sync and grant you access.",
+            style("i").dim(),
+        );
+    } else if action == 1 {
         // Join via invite link
         let invite_token = if let Some(link) = invite_token_arg {
             link

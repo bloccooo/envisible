@@ -4,6 +4,7 @@ use opendal::{services, Operator};
 use serde::{Deserialize, Serialize};
 
 const DOC_EXTENSION: &str = "envi.enc";
+const STORAGE_PREFIX: &str = "_envi/";
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(tag = "type", rename_all = "lowercase")]
@@ -157,15 +158,37 @@ impl StorageBackend {
         Ok(results)
     }
 
+    /// List vault IDs discovered under the `_envi/` prefix.
+    pub async fn list_vault_ids(&self) -> Result<Vec<String>> {
+        let entries = match self.op.list(STORAGE_PREFIX).await {
+            Ok(e) => e,
+            Err(e) if e.kind() == opendal::ErrorKind::NotFound => return Ok(vec![]),
+            Err(e) => return Err(Error::Storage(e)),
+        };
+
+        let ids = entries
+            .into_iter()
+            .filter_map(|e| {
+                let path = e.path();
+                // Expect paths like `_envi/{vault_id}/`
+                let inner = path.strip_prefix(STORAGE_PREFIX)?;
+                let id = inner.trim_end_matches('/');
+                if id.is_empty() { None } else { Some(id.to_string()) }
+            })
+            .collect();
+
+        Ok(ids)
+    }
+
     pub async fn check(&self) -> bool {
         self.op.check().await.is_ok()
     }
 }
 
 pub fn push_path(vault_id: &str, member_id: &str) -> String {
-    format!("_envi/{vault_id}/{member_id}.{DOC_EXTENSION}")
+    format!("{STORAGE_PREFIX}{vault_id}/{member_id}.{DOC_EXTENSION}")
 }
 
 pub fn pull_prefix(vault_id: &str) -> String {
-    format!("_envi/{vault_id}/")
+    format!("{STORAGE_PREFIX}{vault_id}/")
 }
