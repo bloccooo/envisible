@@ -359,10 +359,18 @@ impl Component for HomePage {
             }
             KeyCode::Tab => {
                 if self.secrets.editing_tag.is_none() {
-                    let next = match self.focus {
-                        Focus::Secrets => Focus::Tags,
-                        Focus::Tags => Focus::Members,
-                        Focus::Members => Focus::Secrets,
+                    let next = if self.state.secrets.is_empty() {
+                        match self.focus {
+                            Focus::Secrets => Focus::Members,
+                            Focus::Tags => Focus::Members, // Should never happen as tags is not displayed
+                            Focus::Members => Focus::Secrets,
+                        }
+                    } else {
+                        match self.focus {
+                            Focus::Secrets => Focus::Tags,
+                            Focus::Tags => Focus::Members,
+                            Focus::Members => Focus::Secrets,
+                        }
                     };
                     self.set_focus(next);
                     self.send_hint(self.normal_hint()).await;
