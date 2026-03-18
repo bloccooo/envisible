@@ -1,5 +1,6 @@
 use std::sync::Arc;
 
+use arboard::Clipboard;
 use async_trait::async_trait;
 use crossterm::event::{Event, KeyCode};
 use ratatui::{
@@ -10,22 +11,24 @@ use ratatui::{
     Frame,
 };
 use tokio::sync::mpsc::Sender;
+use tokio::time::Duration;
 
 use lib::invite::{generate_invite, VaultPayload};
 
 use crate::tui::{
     actions::{Actions, Route},
     component::{Component, EventResult},
-    state::State,
+    state::{FooterStatus, State},
 };
 
 pub struct InvitePage {
     actions_tx: Sender<Actions>,
     invite_token: String,
+    state: Arc<State>,
 }
 
 impl InvitePage {
-    pub const DEFAULT_HINT: &'static str = "[Esc] Close";
+    pub const DEFAULT_HINT: &'static str = "[c] Copy  [Esc] Close";
 
     pub fn new(actions_tx: Sender<Actions>, state: Arc<State>) -> Self {
         let inviter_id = state
@@ -47,6 +50,7 @@ impl InvitePage {
         Self {
             actions_tx,
             invite_token,
+            state,
         }
     }
 }
@@ -72,14 +76,6 @@ impl Component for InvitePage {
             )]),
             Line::from(""),
             Line::from(self.invite_token.clone()),
-            Line::from(""),
-            Line::from(vec![
-                Span::styled("They should run:  ", Style::default().fg(Color::DarkGray)),
-                Span::styled(
-                    format!("envi setup {}", self.invite_token),
-                    Style::default().fg(Color::White),
-                ),
-            ]),
         ];
 
         let block = Block::default()
@@ -102,13 +98,37 @@ impl Component for InvitePage {
         );
     }
 
-    async fn update(&mut self, _state: Arc<State>) {}
+    async fn update(&mut self, state: Arc<State>) {
+        self.state = state;
+    }
 
     async fn handle_event(&mut self, event: Event) -> EventResult {
         if let Event::Key(key) = event {
-            if key.code == KeyCode::Esc {
-                let _ = self.actions_tx.send(Actions::NavigateTo(Route::Home)).await;
-                return EventResult::Consumed;
+            match key.code {
+                KeyCode::Char('c') => {
+                    if let Ok(mut clipboard) = Clipboard::new() {
+                        let _ = clipboard.set_text(self.invite_token.clone());
+                    }
+                    let tx = self.actions_tx.clone();
+                    let copied_state = Arc::new(
+                        State::cloned(&self.state).with_footer_status(FooterStatus::Ok(
+                            "copied to clipboard".to_string(),
+                        )),
+                    );
+                    let reset_state =
+                        Arc::new(State::cloned(&self.state).with_footer_status(FooterStatus::Idle));
+                    let _ = tx.send(Actions::SetState(copied_state)).await;
+                    tokio::spawn(async move {
+                        tokio::time::sleep(Duration::from_secs(2)).await;
+                        let _ = tx.send(Actions::SetState(reset_state)).await;
+                    });
+                    return EventResult::Consumed;
+                }
+                KeyCode::Esc => {
+                    let _ = self.actions_tx.send(Actions::NavigateTo(Route::Home)).await;
+                    return EventResult::Consumed;
+                }
+                _ => {}
             }
         }
         EventResult::Ignored
