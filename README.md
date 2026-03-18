@@ -84,7 +84,7 @@ envi setup envi-invite:<token> # join workspace
 
 ### `envi`
 
-Open the terminal UI to manage secrets, namespaces, and members.
+Open the terminal UI to manage secrets, tags, and members.
 
 ```sh
 envi
@@ -92,17 +92,17 @@ envi
 
 **Key bindings:**
 
-| Key   | Action                                     |
-| ----- | ------------------------------------------ |
-| `n`   | New item                                   |
-| `e`   | Edit selected                              |
-| `d`   | Delete selected                            |
-| `s`   | Manage namespace secrets (namespaces pane) |
-| `g`   | Grant access to member (members pane)      |
-| `i`   | Generate invite link (members pane)        |
-| `v`   | Toggle value visibility                    |
-| `Tab` | Switch pane                                |
-| `q`   | Quit                                       |
+| Key   | Action                                |
+| ----- | ------------------------------------- |
+| `n`   | New item                              |
+| `e`   | Edit selected                         |
+| `d`   | Delete selected                       |
+| `s`   | Manage tag secrets (tags pane)        |
+| `g`   | Grant access to member (members pane) |
+| `i`   | Generate invite link (members pane)   |
+| `v`   | Toggle value visibility               |
+| `Tab` | Switch pane                           |
+| `q`   | Quit                                  |
 
 ### `envi exec`
 
@@ -110,14 +110,14 @@ Inject secrets as environment variables into a command.
 
 ```sh
 envi exec -- node server.js
-envi exec --namespace myapp -- node server.js
-envi exec --namespace myapp --dry-run
+envi exec --tag myapp -- node server.js
+envi exec --tag myapp --dry-run
 ```
 
-A `.envi` file in the project root can specify the default namespace:
+A `.envi` file in the project root can specify the default tag:
 
 ```
-namespace = "myapp"
+tag = "myapp"
 ```
 
 ### `envi sync`
