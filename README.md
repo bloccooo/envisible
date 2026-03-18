@@ -90,20 +90,6 @@ Open the terminal UI to manage secrets, tags, and members.
 envi
 ```
 
-**Key bindings:**
-
-| Key   | Action                                |
-| ----- | ------------------------------------- |
-| `n`   | New item                              |
-| `e`   | Edit selected                         |
-| `d`   | Delete selected                       |
-| `s`   | Manage tag secrets (tags pane)        |
-| `g`   | Grant access to member (members pane) |
-| `i`   | Generate invite link (members pane)   |
-| `v`   | Toggle value visibility               |
-| `Tab` | Switch pane                           |
-| `q`   | Quit                                  |
-
 ### `envi exec`
 
 Inject secrets as environment variables into a command.
