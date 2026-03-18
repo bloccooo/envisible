@@ -9,13 +9,19 @@ use lib::{
 
 use crate::passphrase::prompt_passphrase;
 
-pub async fn run(tag_arg: Option<String>, dry_run: bool, cmd: Vec<String>) -> Result<()> {
+pub async fn exec(
+    tag_arg: Option<String>,
+    vault_arg: Option<String>,
+    dry_run: bool,
+    cmd: Vec<String>,
+) -> Result<()> {
+    let envi = read_envi_file(".").await?;
+
     // Resolve tag filter: flag → .envi file → all secrets
-    let tag_filter = if tag_arg.is_some() {
-        tag_arg
-    } else {
-        read_envi_file(".").await?.tag
-    };
+    let tag_filter = tag_arg.or(envi.tag);
+
+    // Resolve vault name: flag → .envi file → interactive
+    let vault_name = vault_arg.or(envi.vault);
 
     let config = read_config().await?.ok_or(Error::NoConfig)?;
 
@@ -23,7 +29,13 @@ pub async fn run(tag_arg: Option<String>, dry_run: bool, cmd: Vec<String>) -> Re
         return Err(Error::NoVaults);
     }
 
-    let vault = if config.vaults.len() == 1 {
+    let vault = if let Some(ref name) = vault_name {
+        config
+            .vaults
+            .into_iter()
+            .find(|v| v.name.eq_ignore_ascii_case(name))
+            .ok_or_else(|| Error::Other(format!("vault \"{name}\" not found")))?
+    } else if config.vaults.len() == 1 {
         config.vaults.into_iter().next().unwrap()
     } else {
         let names: Vec<_> = config.vaults.iter().map(|w| w.name.as_str()).collect();

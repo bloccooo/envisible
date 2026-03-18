@@ -26,6 +26,9 @@ enum Command {
         /// Filter by tag (default: from .envi file)
         #[arg(short, long)]
         tag: Option<String>,
+        /// Select vault by name (skips interactive prompt when multiple vaults exist)
+        #[arg(short, long)]
+        vault: Option<String>,
         /// Print env vars that would be injected without running
         #[arg(long)]
         dry_run: bool,
@@ -58,7 +61,12 @@ async fn main() {
     let result = match cli.command.unwrap_or(Command::Ui) {
         Command::Setup { invite } => commands::setup::run(invite).await,
         Command::Ui => commands::ui::run().await,
-        Command::Exec { tag, dry_run, cmd } => commands::run::run(tag, dry_run, cmd).await,
+        Command::Exec {
+            tag,
+            vault,
+            dry_run,
+            cmd,
+        } => commands::exec::exec(tag, vault, dry_run, cmd).await,
         Command::ForceSync => commands::sync::run().await,
         Command::Logout => agent::run(false, true).await,
         Command::Wipe => commands::clear::run().await,
