@@ -1,8 +1,4 @@
-mod agent;
-mod commands;
-mod passphrase;
-mod tui;
-
+use envi::{agent, commands};
 use clap::{Parser, Subcommand};
 
 #[derive(Parser)]

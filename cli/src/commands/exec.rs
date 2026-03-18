@@ -1,13 +1,28 @@
 use lib::{
-    config::read_config,
+    config::{read_config, VaultConfig},
     crypto::derive_private_key,
     envi_file::read_envi_file,
     error::{Error, Result},
     secrets::list_secrets,
     store::{unlock, Store},
+    types::PlaintextSecret,
 };
 
 use crate::passphrase::prompt_passphrase;
+
+pub fn find_vault(vaults: Vec<VaultConfig>, name: &str) -> Result<VaultConfig> {
+    vaults
+        .into_iter()
+        .find(|v| v.name.eq_ignore_ascii_case(name))
+        .ok_or_else(|| Error::Other(format!("vault \"{name}\" not found")))
+}
+
+pub fn filter_by_tag(secrets: Vec<PlaintextSecret>, tag: Option<&str>) -> Vec<PlaintextSecret> {
+    secrets
+        .into_iter()
+        .filter(|s| tag.map(|t| s.tags.iter().any(|st| st == t)).unwrap_or(true))
+        .collect()
+}
 
 pub async fn exec(
     tag_arg: Option<String>,
@@ -30,11 +45,7 @@ pub async fn exec(
     }
 
     let vault = if let Some(ref name) = vault_name {
-        config
-            .vaults
-            .into_iter()
-            .find(|v| v.name.eq_ignore_ascii_case(name))
-            .ok_or_else(|| Error::Other(format!("vault \"{name}\" not found")))?
+        find_vault(config.vaults, name)?
     } else if config.vaults.len() == 1 {
         config.vaults.into_iter().next().unwrap()
     } else {
@@ -67,14 +78,8 @@ pub async fn exec(
 
     let all_secrets = list_secrets(&doc, &session.dek)?;
 
-    let env_vars: Vec<(String, String)> = all_secrets
+    let env_vars: Vec<(String, String)> = filter_by_tag(all_secrets, tag_filter.as_deref())
         .into_iter()
-        .filter(|s| {
-            tag_filter
-                .as_ref()
-                .map(|tag| s.tags.iter().any(|t| t == tag))
-                .unwrap_or(true)
-        })
         .map(|s| (s.name, s.value))
         .collect();
 

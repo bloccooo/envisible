@@ -3,6 +3,10 @@ name = "envi"
 version.workspace = true
 edition = "2021"
 
+[lib]
+name = "envi"
+path = "src/lib.rs"
+
 [[bin]]
 name = "envi"
 path = "src/main.rs"

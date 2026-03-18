@@ -96,7 +96,7 @@ Inject secrets as environment variables into a command.
 
 ```sh
 envi exec -- node server.js
-envi exec --tag myapp -- node server.js
+envi exec --vault myvault --tag myapp -- node server.js
 envi exec --tag myapp --dry-run
 ```
 
@@ -104,6 +104,7 @@ A `.envi` file in the project root can specify the default tag:
 
 ```
 tag = "myapp"
+vault = "myvault"
 ```
 
 ### `envi sync`
