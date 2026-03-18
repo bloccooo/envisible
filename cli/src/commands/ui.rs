@@ -1,3 +1,4 @@
+use indicatif::{ProgressBar, ProgressStyle};
 use lib::{
     config::read_config,
     crypto::derive_private_key,
@@ -28,7 +29,19 @@ pub async fn run() -> Result<()> {
     };
 
     let store = Store::new(&vault.id, &config.member_id, &vault.storage)?;
+
+    let spinner = ProgressBar::new_spinner();
+    spinner.set_style(
+        ProgressStyle::default_spinner()
+            .template("{spinner} {msg}")
+            .unwrap(),
+    );
+    spinner.set_message("Syncing...");
+    spinner.enable_steady_tick(std::time::Duration::from_millis(80));
+
     let doc = store.pull().await?;
+
+    spinner.finish_and_clear();
     let agent = crate::agent::AgentClient::connect_or_start();
     let private_key = if let Some(ref agent) = agent {
         if let Some(key) = agent.get_key(&vault.id) {
@@ -44,5 +57,13 @@ pub async fn run() -> Result<()> {
         agent.store_key(&vault.id, &private_key);
     }
 
-    crate::tui::run(doc, store, session, config.member_name, vault.name, vault.storage).await
+    crate::tui::run(
+        doc,
+        store,
+        session,
+        config.member_name,
+        vault.name,
+        vault.storage,
+    )
+    .await
 }
