@@ -2,7 +2,7 @@
 
 [![CI](https://github.com/bloccooo/envisible/actions/workflows/ci.yml/badge.svg)](https://github.com/bloccooo/envisible/actions/workflows/ci.yml)
 
-A multi-user serverless secret manager for teams. Secrets are stored encrypted in a storage backend of your choice (S3, R2, WebDAV, GitHub, or local) and synced across team members using a [CRDT](https://automerge.org) — no central server, no shared master password, no trust in the storage provider. Unencrypted values never touch disk or the wire: they exist only in RAM, and everything transmitted to the storage backend is encrypted on the device before upload.
+A multi-user distributed secret manager for teams. Secrets are stored encrypted in a storage backend of your choice (S3, R2, WebDAV, GitHub, or local) and synced across team members using a [CRDT](https://automerge.org) — no central server, no shared master password, no trust in the storage provider. Unencrypted values never touch disk or the wire: they exist only in RAM, and everything transmitted to the storage backend is encrypted on the device before upload.
 
 Designed with the agentic era in mind. Credentials are scoped per terminal session, injected only into explicitly declared processes, and never accessible to tools running in other terminals — protecting against prompt injection attacks and curious agents.
 
