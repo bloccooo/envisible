@@ -24,3 +24,19 @@ opendal = { version = "0.55", features = ["services-s3", "services-fs", "service
 futures = "0.3"
 uuid = { version = "1", features = ["v7", "serde"] }
 directories = "6"
+rayon = "1"
+
+[dev-dependencies]
+criterion = { version = "0.5", features = ["html_reports"] }
+
+[[bench]]
+name = "large_vault"
+harness = false
+
+[[bench]]
+name = "sync_pipeline"
+harness = false
+
+[[bench]]
+name = "playground"
+harness = false

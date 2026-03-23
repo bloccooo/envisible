@@ -1,3 +1,4 @@
+use rayon::prelude::*;
 use crate::{
     crypto::{
         canonical_document_bytes, derive_signing_key, get_public_key, sign_document,
@@ -103,7 +104,7 @@ fn load_and_verify_files(files: Vec<Vec<u8>>) -> Option<AutoCommit> {
     }
 
     let docs: Vec<AutoCommit> = files
-        .into_iter()
+        .into_par_iter()
         .filter_map(|bytes| {
             let doc = AutoCommit::load(&bytes).ok()?;
             let state: EnviDocument = hydrate(&doc).ok()?;
