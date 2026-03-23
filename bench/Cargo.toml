@@ -1,0 +1,12 @@
+[package]
+name = "bench"
+version.workspace = true
+edition = "2021"
+
+[dependencies]
+lib = { path = "../lib" }
+tokio = { workspace = true }
+uuid = { version = "1", features = ["v7"] }
+base64 = { workspace = true }
+automerge = { workspace = true }
+autosurgeon = { workspace = true }

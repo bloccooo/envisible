@@ -61,6 +61,28 @@ pub fn add_secret(
     Ok(())
 }
 
+pub fn add_secret_from_state(
+    state: &mut EnviDocument,
+    dek: &[u8; 32],
+    fields: PlaintextSecretFields,
+) -> Result<()> {
+    let id = Uuid::now_v7().to_string();
+    let (enc_name, enc_value, enc_desc, enc_tags) = encrypt_secret(&fields, dek)?;
+
+    state.secrets.insert(
+        id.clone(),
+        Secret {
+            id,
+            name: enc_name,
+            value: enc_value,
+            description: enc_desc,
+            tags: enc_tags,
+        },
+    );
+
+    Ok(())
+}
+
 pub fn remove_secret(doc: &mut AutoCommit, id: &str) -> Result<()> {
     let mut state: EnviDocument = hydrate(doc)?;
     state.secrets.remove(id);
