@@ -2,6 +2,13 @@ use crate::error::{Error, Result};
 use futures::StreamExt;
 use opendal::{services, Operator};
 use serde::{Deserialize, Serialize};
+use std::{
+    env,
+    sync::{
+        atomic::{AtomicU64, Ordering},
+        Arc,
+    },
+};
 
 const DOC_EXTENSION: &str = "envi.enc";
 const STORAGE_PREFIX: &str = "_envi/";
@@ -53,6 +60,66 @@ pub struct GithubConfig {
     pub repo: String,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub root: Option<String>,
+}
+
+impl StorageConfig {
+    /// Build a `StorageConfig` from environment variables.
+    ///
+    /// `ENVI_STORAGE` selects the backend (default: `fs`):
+    ///
+    /// - `fs`     — `FS_ROOT` (default: `./`)
+    /// - `s3`     — `S3_BUCKET`, `S3_REGION`, `S3_ACCESS_KEY_ID`,
+    ///              `S3_SECRET_ACCESS_KEY`, `S3_ENDPOINT` (optional)
+    /// - `r2`     — `R2_ACCOUNT_ID`, `R2_BUCKET`,
+    ///              `R2_ACCESS_KEY_ID`, `R2_SECRET_ACCESS_KEY`
+    /// - `webdav` — `WEBDAV_ENDPOINT`, `WEBDAV_USERNAME`, `WEBDAV_PASSWORD`
+    /// - `github` — `GITHUB_TOKEN`, `GITHUB_OWNER`, `GITHUB_REPO`,
+    ///              `GITHUB_ROOT` (optional)
+    pub fn from_env() -> Result<Self> {
+        let backend = env::var("ENVI_STORAGE").unwrap_or_else(|_| "fs".into());
+        match backend.to_lowercase().as_str() {
+            "fs" => Ok(StorageConfig::Fs(FsConfig {
+                root: env::var("FS_ROOT").unwrap_or_else(|_| "./".into()),
+            })),
+            "s3" => Ok(StorageConfig::S3(S3Config {
+                bucket: env::var("S3_BUCKET")
+                    .map_err(|_| Error::Other("S3_BUCKET not set".into()))?,
+                region: env::var("S3_REGION")
+                    .map_err(|_| Error::Other("S3_REGION not set".into()))?,
+                access_key_id: env::var("S3_ACCESS_KEY_ID")
+                    .map_err(|_| Error::Other("S3_ACCESS_KEY_ID not set".into()))?,
+                secret_access_key: env::var("S3_SECRET_ACCESS_KEY")
+                    .map_err(|_| Error::Other("S3_SECRET_ACCESS_KEY not set".into()))?,
+                endpoint: env::var("S3_ENDPOINT").ok(),
+            })),
+            "r2" => Ok(StorageConfig::R2(R2Config {
+                account_id: env::var("R2_ACCOUNT_ID")
+                    .map_err(|_| Error::Other("R2_ACCOUNT_ID not set".into()))?,
+                bucket: env::var("R2_BUCKET")
+                    .map_err(|_| Error::Other("R2_BUCKET not set".into()))?,
+                access_key_id: env::var("R2_ACCESS_KEY_ID")
+                    .map_err(|_| Error::Other("R2_ACCESS_KEY_ID not set".into()))?,
+                secret_access_key: env::var("R2_SECRET_ACCESS_KEY")
+                    .map_err(|_| Error::Other("R2_SECRET_ACCESS_KEY not set".into()))?,
+            })),
+            "webdav" => Ok(StorageConfig::Webdav(WebdavConfig {
+                endpoint: env::var("WEBDAV_ENDPOINT")
+                    .map_err(|_| Error::Other("WEBDAV_ENDPOINT not set".into()))?,
+                username: env::var("WEBDAV_USERNAME").unwrap_or_default(),
+                password: env::var("WEBDAV_PASSWORD").unwrap_or_default(),
+            })),
+            "github" => Ok(StorageConfig::Github(GithubConfig {
+                token: env::var("GITHUB_TOKEN")
+                    .map_err(|_| Error::Other("GITHUB_TOKEN not set".into()))?,
+                owner: env::var("GITHUB_OWNER")
+                    .map_err(|_| Error::Other("GITHUB_OWNER not set".into()))?,
+                repo: env::var("GITHUB_REPO")
+                    .map_err(|_| Error::Other("GITHUB_REPO not set".into()))?,
+                root: env::var("GITHUB_ROOT").ok(),
+            })),
+            other => Err(Error::Other(format!("unknown STORAGE value: {other}"))),
+        }
+    }
 }
 
 pub fn build_operator(config: &StorageConfig) -> Result<Operator> {
@@ -126,6 +193,15 @@ impl StorageBackend {
     }
 
     pub async fn pull(&self, prefix: &str) -> Result<Vec<Vec<u8>>> {
+        let results = self.pull_with_progress(prefix, |_| {}).await?;
+        Ok(results)
+    }
+
+    pub async fn pull_with_progress(
+        &self,
+        prefix: &str,
+        on_progress: impl Fn(u8) + Send + Sync,
+    ) -> Result<Vec<Vec<u8>>> {
         let entries = match self.op.list(prefix).await {
             Ok(e) => e,
             Err(e) if e.kind() == opendal::ErrorKind::NotFound => return Ok(vec![]),
@@ -137,12 +213,26 @@ impl StorageBackend {
             .filter(|e| e.path().ends_with(&format!(".{DOC_EXTENSION}")))
             .collect();
 
-        const MAX_CONCURRENT: usize = 8;
+        let loaded_count = Arc::new(AtomicU64::new(0));
+        let doc_count = doc_entries.len() as u64;
+        let on_progress = Arc::new(on_progress);
+
+        const MAX_CONCURRENT: usize = 10;
 
         let results = futures::stream::iter(doc_entries)
             .map(|e| {
                 let path = e.path().to_owned();
-                async move { self.op.read(&path).await }
+                let loaded_count = loaded_count.clone();
+                let on_progress = on_progress.clone();
+
+                async move {
+                    let file = self.op.read(&path).await;
+                    loaded_count.fetch_add(1, Ordering::Relaxed);
+                    let loaded_count = loaded_count.load(Ordering::Relaxed);
+                    let progress = ((loaded_count) as f64 / (doc_count) as f64 * 100.0) as u8;
+                    on_progress(progress);
+                    file
+                }
             })
             .buffer_unordered(MAX_CONCURRENT)
             .filter_map(|r| async move {
@@ -173,7 +263,11 @@ impl StorageBackend {
                 // Expect paths like `_envi/{vault_id}/`
                 let inner = path.strip_prefix(STORAGE_PREFIX)?;
                 let id = inner.trim_end_matches('/');
-                if id.is_empty() { None } else { Some(id.to_string()) }
+                if id.is_empty() {
+                    None
+                } else {
+                    Some(id.to_string())
+                }
             })
             .collect();
 

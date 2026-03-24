@@ -10,3 +10,5 @@ uuid = { version = "1", features = ["v7"] }
 base64 = { workspace = true }
 automerge = { workspace = true }
 autosurgeon = { workspace = true }
+rayon = "1"
+futures = "0.3"

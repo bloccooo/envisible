@@ -271,7 +271,9 @@ dependencies = [
  "automerge",
  "autosurgeon",
  "base64",
+ "futures",
  "lib",
+ "rayon",
  "tokio",
  "uuid",
 ]

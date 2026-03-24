@@ -1,8 +1,7 @@
-use rayon::prelude::*;
 use crate::{
     crypto::{
-        canonical_document_bytes, derive_signing_key, get_public_key, sign_document,
-        unwrap_dek, verify_document_signature, verify_key_mac,
+        canonical_document_bytes, derive_signing_key, get_public_key, sign_document, unwrap_dek,
+        verify_document_signature, verify_key_mac,
     },
     error::{Error, Result},
     storage::{pull_prefix, push_path, StorageBackend, StorageConfig},
@@ -12,7 +11,14 @@ use automerge::AutoCommit;
 use autosurgeon::{hydrate, reconcile};
 use base64::{engine::general_purpose::STANDARD as B64, Engine};
 use directories::ProjectDirs;
-use std::path::PathBuf;
+use rayon::prelude::*;
+use std::{
+    path::PathBuf,
+    sync::{
+        atomic::{AtomicU64, AtomicU8, Ordering},
+        Arc,
+    },
+};
 use tokio::time::{timeout, Duration};
 
 const REMOTE_TIMEOUT: Duration = Duration::from_secs(5);
@@ -22,6 +28,12 @@ pub struct Store {
     member_id: String,
     remote: StorageBackend,
     local: StorageBackend,
+}
+
+pub enum PullProgress {
+    LoadingFiles(u8),
+    VerifyFiles(u8),
+    MergeFiles(u8),
 }
 
 impl Store {
@@ -43,14 +55,40 @@ impl Store {
     }
 
     pub async fn pull(&self) -> Result<AutoCommit> {
-        let prefix = pull_prefix(&self.vault_id);
+        let doc = self.pull_with_progress(|_| {}).await?;
+        Ok(doc)
+    }
 
+    pub async fn pull_with_progress(
+        &self,
+        on_progress: impl Fn(u8) + Send + Sync,
+    ) -> Result<AutoCommit> {
+        let pull_progress = Arc::new(AtomicU8::new(0));
+        let verify_progress = Arc::new(AtomicU8::new(0));
+
+        let prefix = pull_prefix(&self.vault_id);
         let local_doc = self.load_local(&prefix).await;
 
-        let remote_doc = match timeout(REMOTE_TIMEOUT, self.remote.pull(&prefix)).await {
-            Ok(Ok(files)) => load_and_verify_files(files),
-            _ => None,
+        let files = match timeout(
+            REMOTE_TIMEOUT,
+            self.remote.pull_with_progress(&prefix, |progress| {
+                pull_progress.store(progress, Ordering::Relaxed);
+                let pull_progress = pull_progress.load(Ordering::Relaxed);
+                on_progress(pull_progress / 2);
+            }),
+        )
+        .await
+        {
+            Ok(Ok(files)) => files,
+            _ => vec![],
         };
+
+        let remote_doc = load_and_verify_files_with_progress(files, |progress| {
+            verify_progress.store(progress, Ordering::Relaxed);
+            let pull_progress = pull_progress.load(Ordering::Relaxed) as f64;
+            let verify_progress = verify_progress.load(Ordering::Relaxed) as f64;
+            on_progress(((pull_progress + verify_progress) / 2.0) as u8);
+        });
 
         let doc = match (local_doc, remote_doc) {
             (Some(mut l), Some(mut r)) => {
@@ -99,9 +137,19 @@ impl Store {
 /// Load each file, verify its document signature, and merge the valid ones.
 /// Files without a signature or with an invalid signature are skipped with a warning.
 fn load_and_verify_files(files: Vec<Vec<u8>>) -> Option<AutoCommit> {
+    load_and_verify_files_with_progress(files, |_| {})
+}
+
+fn load_and_verify_files_with_progress(
+    files: Vec<Vec<u8>>,
+    on_progress: impl Fn(u8) + Send + Sync,
+) -> Option<AutoCommit> {
     if files.is_empty() {
         return None;
     }
+
+    let verified_count = Arc::new(AtomicU64::new(0));
+    let files_count = files.len() as u64;
 
     let docs: Vec<AutoCommit> = files
         .into_par_iter()
@@ -126,7 +174,7 @@ fn load_and_verify_files(files: Vec<Vec<u8>>) -> Option<AutoCommit> {
             }
 
             let canonical = canonical_document_bytes(&state);
-            match verify_document_signature(&canonical, &state.document_signature, &member.signing_key) {
+            let result = match verify_document_signature(&canonical, &state.document_signature, &member.signing_key) {
                 Ok(()) => Some(doc),
                 Err(_) => {
                     eprintln!(
@@ -134,7 +182,15 @@ fn load_and_verify_files(files: Vec<Vec<u8>>) -> Option<AutoCommit> {
                     );
                     None
                 }
-            }
+            };
+
+            verified_count.fetch_add(1, Ordering::Relaxed);
+            let verified_count = verified_count.load(Ordering::Relaxed);
+            let progress = (verified_count as f64 / files_count as f64 * 100.0) as u8;
+            on_progress(progress);
+            
+
+            result
         })
         .collect();
 
