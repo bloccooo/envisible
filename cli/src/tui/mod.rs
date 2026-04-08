@@ -9,6 +9,8 @@ mod state;
 use std::io;
 use std::sync::Arc;
 
+use std::collections::HashSet;
+
 use automerge::AutoCommit;
 use autosurgeon::hydrate;
 use crossterm::{
@@ -98,6 +100,7 @@ async fn run_app(
             pending_grants: vec![],
             rotate_dek: false,
             private_key: session.private_key,
+            selected_tags: HashSet::new(),
         },
     ));
 

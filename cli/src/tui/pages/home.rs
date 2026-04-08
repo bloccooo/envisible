@@ -104,7 +104,13 @@ impl HomePage {
                     Self::DEFAULT_HINT
                 }
             }
-            Focus::Tags => "[n] New  [e] Rename  [a] Assign  [d] Delete  [s] Sync  [Tab] Switch  [q] Quit",
+            Focus::Tags => {
+                if self.tags.tag_idx == 0 {
+                    "[n] New  [a] Assign  [d] Delete  [f] Filter  [s] Sync  [Tab] Switch  [q] Quit"
+                } else {
+                    "[n] New  [e] Rename  [a] Assign  [d] Delete  [f] Filter  [s] Sync  [Tab] Switch  [q] Quit"
+                }
+            }
             Focus::Members => {
                 let pending = self
                     .state
@@ -141,7 +147,7 @@ impl HomePage {
                 .clone()
                 .with_tag_assignments(&tag, &self.secrets.ts_selected_ids)
                 .with_footer_hint(
-                    "[n] New  [e] Rename  [a] Assign  [d] Delete  [s] Sync  [Tab] Switch  [q] Quit",
+                    "[n] New  [e] Rename  [a] Assign  [d] Delete  [f] Filter  [s] Sync  [Tab] Switch  [q] Quit",
                 ),
         );
         let _ = self.actions_tx.send(Actions::SetState(new_state)).await;
@@ -210,7 +216,7 @@ impl Component for HomePage {
                     self.secrets.ts_selected_ids.clear();
                     self.set_focus(Focus::Tags);
                     self.send_hint(
-                        "[n] New  [e] Rename  [a] Assign  [d] Delete  [s] Sync  [Tab] Switch  [q] Quit",
+                        "[n] New  [e] Rename  [a] Assign  [d] Delete  [f] Filter  [s] Sync  [Tab] Switch  [q] Quit",
                     )
                     .await;
                     return EventResult::Consumed;
@@ -393,7 +399,7 @@ impl Component for HomePage {
             },
             KeyCode::Char('e') => match self.focus {
                 Focus::Secrets => {
-                    if let Some(sec) = self.state.secrets.get(self.secrets.sec_idx) {
+                    if let Some(sec) = self.state.filtered_secrets().get(self.secrets.sec_idx).copied() {
                         let _ = self
                             .actions_tx
                             .send(Actions::NavigateTo(Route::EditSecret(sec.id.clone())))
@@ -402,7 +408,7 @@ impl Component for HomePage {
                 }
                 Focus::Tags => {
                     let tags = self.state.tags();
-                    if let Some(tag) = tags.get(self.tags.tag_idx).cloned() {
+                    if let Some(tag) = self.tags.current_real_tag(&tags).cloned() {
                         let _ = self
                             .actions_tx
                             .send(Actions::NavigateTo(Route::EditTag(tag)))
@@ -413,7 +419,7 @@ impl Component for HomePage {
             },
             KeyCode::Char('d') => match self.focus {
                 Focus::Secrets => {
-                    if let Some(sec) = self.state.secrets.get(self.secrets.sec_idx) {
+                    if let Some(sec) = self.state.filtered_secrets().get(self.secrets.sec_idx).copied() {
                         let msg = format!("Delete secret '{}'? [y] Yes  [n] No", sec.name);
                         self.secret_to_delete = Some(sec.id.clone());
                         self.send_warning(msg).await;
@@ -421,7 +427,7 @@ impl Component for HomePage {
                 }
                 Focus::Tags => {
                     let tags = self.state.tags();
-                    if let Some(tag) = tags.get(self.tags.tag_idx).cloned() {
+                    if let Some(tag) = self.tags.current_real_tag(&tags).cloned() {
                         let msg = format!("Delete tag '{tag}'? [y] Yes  [n] No");
                         self.tag_to_delete = Some(tag);
                         self.send_warning(msg).await;
@@ -439,7 +445,7 @@ impl Component for HomePage {
             },
             KeyCode::Char('c') => {
                 if self.focus == Focus::Secrets {
-                    if let Some(sec) = self.state.secrets.get(self.secrets.sec_idx) {
+                    if let Some(sec) = self.state.filtered_secrets().get(self.secrets.sec_idx).copied() {
                         let value = sec.value.clone();
                         if let Some(cb) = &mut self.clipboard {
                             let _ = cb.set_text(value);
@@ -450,7 +456,7 @@ impl Component for HomePage {
             KeyCode::Char('a') => {
                 if self.focus == Focus::Tags {
                     let tags = self.state.tags();
-                    if let Some(tag) = tags.get(self.tags.tag_idx).cloned() {
+                    if let Some(tag) = self.tags.current_real_tag(&tags).cloned() {
                         self.secrets.ts_selected_ids = self
                             .state
                             .secrets
@@ -463,6 +469,23 @@ impl Component for HomePage {
                         self.send_hint("[Space] Toggle  [Enter] Save  [Esc] Cancel")
                             .await;
                     }
+                }
+            }
+            KeyCode::Char('f') => {
+                if self.focus == Focus::Tags {
+                    let tags = self.state.tags();
+                    let new_state = if self.tags.tag_idx == 0 {
+                        // "All" — clear filter
+                        State::cloned(&self.state).with_tag_filter_cleared()
+                    } else if let Some(tag) = self.tags.current_real_tag(&tags) {
+                        State::cloned(&self.state).with_tag_filter_toggled(tag)
+                    } else {
+                        return EventResult::Consumed;
+                    };
+                    let _ = self
+                        .actions_tx
+                        .send(Actions::SetState(Arc::new(new_state)))
+                        .await;
                 }
             }
             KeyCode::Char('s') => {

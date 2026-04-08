@@ -16,7 +16,7 @@ use crate::tui::{
 
 pub struct TagsComponent {
     state: Arc<State>,
-    pub tag_idx: usize,
+    pub tag_idx: usize, // 0 = "All", 1+ = real tags (offset by 1)
     pub focused: bool,
 }
 
@@ -26,6 +26,15 @@ impl TagsComponent {
             state,
             tag_idx: 0,
             focused: false,
+        }
+    }
+
+    /// Returns the real tag at the current cursor position, or None if "All" is selected.
+    pub fn current_real_tag<'a>(&self, tags: &'a [String]) -> Option<&'a String> {
+        if self.tag_idx == 0 {
+            None
+        } else {
+            tags.get(self.tag_idx - 1)
         }
     }
 }
@@ -41,37 +50,55 @@ impl Component for TagsComponent {
             Style::default().fg(Color::DarkGray)
         };
 
-        let items: Vec<ListItem> = tags
-            .iter()
-            .enumerate()
-            .map(|(i, tag)| {
-                let is_selected = i == self.tag_idx && focused;
-                let count = self
-                    .state
-                    .secrets
-                    .iter()
-                    .filter(|s| s.tags.contains(tag))
-                    .count();
-                let style = if is_selected {
-                    Style::default().bg(Color::Cyan).fg(Color::Black)
-                } else {
-                    Style::default()
-                };
-                ListItem::new(format!("{tag} ({count})")).style(style)
-            })
-            .collect();
+        // "All" pseudo-tag at index 0.
+        let all_cursor = self.tag_idx == 0 && focused;
+        let all_filtered = self.state.selected_tags.is_empty();
+        let all_item = ListItem::new(format!("{} All", if all_filtered { "●" } else { " " }))
+            .style(if all_cursor {
+                Style::default().bg(Color::Cyan).fg(Color::Black)
+            } else {
+                Style::default()
+            });
 
-        let scroll = scroll_indicators(self.tag_idx, tags.len(), area.height as usize, 2);
+        let real_items = tags.iter().enumerate().map(|(i, tag)| {
+            let display_idx = i + 1; // offset by 1 for "All"
+            let cursor_here = display_idx == self.tag_idx && focused;
+            let is_filter_on = self.state.selected_tags.contains(tag);
+            let count = self
+                .state
+                .secrets
+                .iter()
+                .filter(|s| s.tags.contains(tag))
+                .count();
+            let check = if is_filter_on { "●" } else { " " };
+            let style = if cursor_here {
+                Style::default().bg(Color::Cyan).fg(Color::Black)
+            } else if is_filter_on {
+                Style::default().fg(Color::Cyan)
+            } else {
+                Style::default()
+            };
+            ListItem::new(format!("{check} {tag} ({count})")).style(style)
+        });
+
+        let items: Vec<ListItem> = std::iter::once(all_item).chain(real_items).collect();
+        let total = tags.len() + 1; // includes "All"
+
+        let scroll = scroll_indicators(self.tag_idx, total, area.height as usize, 2);
         let block = Block::default()
             .title(format!(" Tags ({}) {} ", tags.len(), scroll))
-            .title_style(Style::default().fg(Color::White).add_modifier(Modifier::BOLD))
+            .title_style(
+                Style::default()
+                    .fg(Color::White)
+                    .add_modifier(Modifier::BOLD),
+            )
             .borders(Borders::ALL)
             .border_type(BorderType::Rounded)
             .border_style(border_style)
             .padding(Padding::uniform(1));
 
         let mut list_state = ListState::default();
-        if focused && !tags.is_empty() {
+        if focused {
             list_state.select(Some(self.tag_idx));
         }
 
@@ -80,9 +107,8 @@ impl Component for TagsComponent {
 
     async fn update(&mut self, state: Arc<State>) {
         let tags = state.tags();
-        if !tags.is_empty() {
-            self.tag_idx = self.tag_idx.min(tags.len() - 1);
-        }
+        // valid range: 0 (All) … tags.len() (last real tag)
+        self.tag_idx = self.tag_idx.min(tags.len());
         self.state = state;
     }
 
@@ -100,7 +126,7 @@ impl Component for TagsComponent {
                     return EventResult::Consumed;
                 }
                 KeyCode::Down => {
-                    if self.tag_idx + 1 < tags.len() {
+                    if self.tag_idx < tags.len() {
                         self.tag_idx += 1;
                     }
                     return EventResult::Consumed;

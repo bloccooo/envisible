@@ -77,12 +77,26 @@ pub struct State {
     /// X25519 private key — in-memory only, never written to disk.
     /// Used to generate invite tokens and verify invite MACs.
     pub private_key: [u8; 32],
+    /// Tags currently selected for filtering secrets. Empty = show all.
+    pub selected_tags: HashSet<String>,
 }
 
 impl State {
     /// Clone the inner State out of an Arc.
     pub fn cloned(arc: &Arc<Self>) -> Self {
         (**arc).clone()
+    }
+
+    /// Return secrets filtered by selected_tags (all if none selected).
+    pub fn filtered_secrets(&self) -> Vec<&Secret> {
+        if self.selected_tags.is_empty() {
+            self.secrets.iter().collect()
+        } else {
+            self.secrets
+                .iter()
+                .filter(|s| s.tags.iter().any(|t| self.selected_tags.contains(t)))
+                .collect()
+        }
     }
 
     /// Derive sorted unique tags from all secrets.
@@ -159,7 +173,7 @@ impl State {
         self
     }
 
-    /// Rename a tag across all secrets.
+    /// Rename a tag across all secrets and update any active filter.
     pub fn with_tag_renamed(mut self, old: &str, new_name: String) -> Self {
         for s in &mut self.secrets {
             for t in &mut s.tags {
@@ -168,14 +182,32 @@ impl State {
                 }
             }
         }
+        if self.selected_tags.remove(old) {
+            self.selected_tags.insert(new_name);
+        }
         self
     }
 
-    /// Remove a tag from all secrets.
+    /// Remove a tag from all secrets and drop it from any active filter.
     pub fn with_tag_deleted(mut self, tag: &str) -> Self {
         for s in &mut self.secrets {
             s.tags.retain(|t| t != tag);
         }
+        self.selected_tags.remove(tag);
+        self
+    }
+
+    /// Toggle a tag in the active filter set.
+    pub fn with_tag_filter_toggled(mut self, tag: &str) -> Self {
+        if !self.selected_tags.remove(tag) {
+            self.selected_tags.insert(tag.to_string());
+        }
+        self
+    }
+
+    /// Clear all tag filters (show all secrets).
+    pub fn with_tag_filter_cleared(mut self) -> Self {
+        self.selected_tags.clear();
         self
     }
 

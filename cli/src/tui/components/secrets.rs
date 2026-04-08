@@ -47,7 +47,7 @@ impl Component for SecretsComponent {
             Style::default().fg(Color::DarkGray)
         };
 
-        let secrets = &self.state.secrets;
+        let secrets = self.state.filtered_secrets();
         let assigning = self.editing_tag.is_some();
         let value_col_width = (area.width.saturating_sub(4) as usize) * 40 / 100 - 2;
 
@@ -147,8 +147,11 @@ impl Component for SecretsComponent {
     }
 
     async fn update(&mut self, state: Arc<State>) {
-        if !state.secrets.is_empty() {
-            self.sec_idx = self.sec_idx.min(state.secrets.len() - 1);
+        let filtered_len = state.filtered_secrets().len();
+        if filtered_len > 0 {
+            self.sec_idx = self.sec_idx.min(filtered_len - 1);
+        } else {
+            self.sec_idx = 0;
         }
         self.state = state;
     }
@@ -166,7 +169,7 @@ impl Component for SecretsComponent {
                     return EventResult::Consumed;
                 }
                 KeyCode::Down => {
-                    if self.sec_idx + 1 < self.state.secrets.len() {
+                    if self.sec_idx + 1 < self.state.filtered_secrets().len() {
                         self.sec_idx += 1;
                     }
                     return EventResult::Consumed;
@@ -176,7 +179,7 @@ impl Component for SecretsComponent {
                     return EventResult::Consumed;
                 }
                 KeyCode::Char(' ') if self.editing_tag.is_some() => {
-                    if let Some(secret) = self.state.secrets.get(self.sec_idx) {
+                    if let Some(secret) = self.state.filtered_secrets().get(self.sec_idx).copied() {
                         let id = secret.id.clone();
                         if self.ts_selected_ids.contains(&id) {
                             self.ts_selected_ids.remove(&id);
