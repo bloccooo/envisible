@@ -2,9 +2,9 @@
 
 [![CI](https://github.com/bloccooo/envisible/actions/workflows/ci.yml/badge.svg)](https://github.com/bloccooo/envisible/actions/workflows/ci.yml)
 
-A multi-user distributed secret manager for teams. Secrets are stored encrypted in a storage backend of your choice (S3, R2, WebDAV, GitHub, or local) and synced across team members using a [CRDT](https://automerge.org) — no central server, no shared master password, no trust in the storage provider. Unencrypted values never touch disk or the wire: they exist only in RAM, and everything transmitted to the storage backend is encrypted on the device before upload.
+A multi-user distributed secret manager for teams. Secrets are stored encrypted in a storage backend of your choice (S3, R2, WebDAV, GitHub, or local) and synced across team members using a [CRDT](https://automerge.org). No central server, no shared master password, no trust in the storage provider. Unencrypted values never touch disk or the wire, they exist only in RAM, and everything transmitted to the storage backend is encrypted on the device before upload.
 
-Designed with the agentic era in mind. Credentials are scoped per terminal session, injected only into explicitly declared processes, and never accessible to tools running in other terminals — protecting against prompt injection attacks and curious agents.
+Designed with the agentic era in mind. Credentials are scoped per terminal session, injected only into explicitly declared processes, and never accessible to tools running in other terminals.
 
 ## Install
 
@@ -22,7 +22,7 @@ There is no central server. Each member owns a single file in the shared storage
 _envi/<vault-id>/<member-id>.amrg
 ```
 
-When a member syncs, they fetch every file under `_envi/<vault-id>/` — one per member — and merge them all into a single consistent view using [Automerge](https://automerge.org), a CRDT library that resolves concurrent edits automatically. The result is then saved to a local cache so the vault is readable offline.
+When a member syncs, they fetch every file under `_envi/<vault-id>/`, one per member, and merge them all into a single consistent view using [Automerge](https://automerge.org), a CRDT library that resolves concurrent edits automatically. The result is then saved to a local cache so the vault is readable offline.
 
 Before merging, each file is verified: it must carry a valid Ed25519 signature produced by the member who owns it. Files with a missing or invalid signature are silently dropped, so a compromised or malicious file in storage cannot corrupt the merged state of other members.
 
@@ -51,13 +51,13 @@ The token contains `invite_pub`, the inviter's member ID, the nonce, and the inv
 token_signature = Ed25519_sign(inviter_signing_priv, JSON(payload))
 ```
 
-Nothing is stored locally — the invite private key can always be re-derived from the inviter's session key and the nonce.
+Nothing is stored locally and the invite private key can always be re-derived from the inviter's session key and the nonce.
 
 **Joining (invitee)**
 
 On receiving the token, the invitee first verifies `token_signature` against `inviter_signing_key`. This proves the token was produced by the holder of that key and has not been tampered with.
 
-The invitee then fetches the workspace document and checks that `members[inviter_id].signing_key` matches `inviter_signing_key` from the token. This proves the key belongs to a real, existing member of the workspace — an attacker controlling rogue storage cannot satisfy this check without holding the inviter's private key.
+The invitee then fetches the workspace document and checks that `members[inviter_id].signing_key` matches `inviter_signing_key` from the token. This proves the key belongs to a real, existing member of the workspace. An attacker controlling rogue storage cannot satisfy this check without holding the inviter's private key.
 
 Finally, the invitee derives their own keypair from their passphrase, performs an X25519 key exchange with `invite_pub` to derive a shared secret, and computes:
 
@@ -69,7 +69,7 @@ This MAC and the nonce are stored in their pending member record.
 
 **Granting access (inviter)**
 
-When the inviter reviews the pending request, they re-derive `invite_priv` from the nonce (using their session key — nothing was stored locally), recompute the shared secret via ECDH, and verify the MAC — confirming that the public key in the record is exactly the one the invitee registered, and was not swapped in storage by an attacker.
+When the inviter reviews the pending request, they re-derive `invite_priv` from the nonce (using their session key, nothing was stored locally), recompute the shared secret via ECDH, and verify the MAC, confirming that the public key in the record is exactly the one the invitee registered, and was not swapped in storage by an attacker.
 
 ## Commands
 
@@ -119,7 +119,7 @@ envi force-sync
 
 Stop the key agent and clear cached credentials from RAM. The next command will prompt for the passphrase again.
 
-Credentials are scoped per terminal session (TTY), so logging out in one terminal only affects that terminal. Other open terminals retain their cached credentials. TTY scoping also limits the blast radius of prompt injection attacks — a process running in a different terminal (e.g. an AI agent) cannot reuse credentials unlocked in your interactive session.
+Credentials are scoped per terminal session (TTY), so logging out in one terminal only affects that terminal. Other open terminals retain their cached credentials. TTY scoping also limits the blast radius of prompt injection attacks, a process running in a different terminal (e.g. an AI agent) cannot reuse credentials unlocked in your interactive session.
 
 ```sh
 envi logout
