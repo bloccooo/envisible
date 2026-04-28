@@ -43,9 +43,11 @@ chmod +x "/tmp/$BIN"
 
 # Install — try without sudo first, fall back to sudo
 if [ -w "$INSTALL_DIR" ]; then
+  mkdir -p "$INSTALL_DIR"
   mv "/tmp/$BIN" "$INSTALL_DIR/$BIN"
 else
   echo "Sudo required to install to $INSTALL_DIR"
+  sudo mkdir -p "$INSTALL_DIR"
   sudo mv "/tmp/$BIN" "$INSTALL_DIR/$BIN"
 fi
 
