@@ -7,8 +7,8 @@ use aes_gcm::{
 use argon2::{Algorithm, Argon2, Params, Version};
 use base64::{engine::general_purpose::STANDARD as B64, Engine};
 use ed25519_dalek::{Signer, Verifier};
-use hmac::{Hmac, Mac};
 use hkdf::Hkdf;
+use hmac::{Hmac, Mac};
 use rand::RngCore;
 use serde::Serialize;
 use sha2::Sha256;
@@ -23,8 +23,7 @@ type HmacSha256 = Hmac<Sha256>;
 /// The salt is `vault_id:member_id`, binding the key to this specific member in this vault.
 /// Parameters: t=3, m=65536, p=1, dkLen=32.
 pub fn derive_private_key(passphrase: &str, vault_id: &str, member_id: &str) -> Result<[u8; 32]> {
-    let params = Params::new(65536, 3, 1, Some(32))
-        .map_err(|e| Error::Other(e.to_string()))?;
+    let params = Params::new(65536, 3, 1, Some(32)).map_err(|e| Error::Other(e.to_string()))?;
     let argon2 = Argon2::new(Algorithm::Argon2id, Version::V0x13, params);
 
     let salt = format!("{}:{}", vault_id, member_id);
@@ -61,7 +60,11 @@ pub fn wrap_dek(dek: &[u8; 32], recipient_public_key: &[u8; 32]) -> Result<Strin
     let recipient_pub = PublicKey::from(*recipient_public_key);
     let shared = ephemeral_secret.diffie_hellman(&recipient_pub);
 
-    let wrapping_key = hkdf_derive(shared.as_bytes(), ephemeral_public.as_bytes(), b"bkey-dek-wrap-v1")?;
+    let wrapping_key = hkdf_derive(
+        shared.as_bytes(),
+        ephemeral_public.as_bytes(),
+        b"bkey-dek-wrap-v1",
+    )?;
 
     let mut nonce_bytes = [0u8; 12];
     rand::thread_rng().fill_bytes(&mut nonce_bytes);
@@ -89,7 +92,9 @@ pub fn unwrap_dek(wrapped: &str, private_key: &[u8; 32]) -> Result<[u8; 32]> {
         return Err(Error::DecryptionFailed);
     }
 
-    let eph_pub_bytes: [u8; 32] = bytes[..32].try_into().map_err(|_| Error::DecryptionFailed)?;
+    let eph_pub_bytes: [u8; 32] = bytes[..32]
+        .try_into()
+        .map_err(|_| Error::DecryptionFailed)?;
     let nonce_bytes = &bytes[32..44];
     let ciphertext = &bytes[44..];
 
@@ -208,8 +213,8 @@ pub fn verify_document_signature(
         .decode(verifying_key_b64)
         .map_err(|_| Error::InvalidSignature)?;
     let key_bytes: [u8; 32] = key_bytes.try_into().map_err(|_| Error::InvalidSignature)?;
-    let verifying_key = ed25519_dalek::VerifyingKey::from_bytes(&key_bytes)
-        .map_err(|_| Error::InvalidSignature)?;
+    let verifying_key =
+        ed25519_dalek::VerifyingKey::from_bytes(&key_bytes).map_err(|_| Error::InvalidSignature)?;
 
     verifying_key
         .verify(canonical, &sig)
@@ -264,8 +269,13 @@ pub fn verify_invite_mac(
     signing_key_b64: &str,
     mac_b64: &str,
 ) -> Result<()> {
-    let expected =
-        compute_invite_mac(my_private, their_public, member_id, public_key_b64, signing_key_b64)?;
+    let expected = compute_invite_mac(
+        my_private,
+        their_public,
+        member_id,
+        public_key_b64,
+        signing_key_b64,
+    )?;
     if expected == mac_b64 {
         Ok(())
     } else {
@@ -283,7 +293,8 @@ pub fn compute_key_mac(
     public_key_b64: &str,
     signing_key_b64: &str,
 ) -> String {
-    let mut mac = <HmacSha256 as hmac::Mac>::new_from_slice(dek).expect("HMAC accepts any key size");
+    let mut mac =
+        <HmacSha256 as hmac::Mac>::new_from_slice(dek).expect("HMAC accepts any key size");
     mac.update(member_id.as_bytes());
     mac.update(b":");
     mac.update(public_key_b64.as_bytes());
