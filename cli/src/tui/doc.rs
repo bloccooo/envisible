@@ -1,3 +1,5 @@
+use std::collections::{HashMap, HashSet};
+
 use automerge::AutoCommit;
 use autosurgeon::{hydrate, reconcile};
 use base64::{engine::general_purpose::STANDARD as B64, Engine};
@@ -89,7 +91,7 @@ pub fn apply_set_state(
     }
     effective.pending_grants.clear();
 
-    let envi = state_to_envi_doc(doc, &effective, &session.dek)?;
+    let envi = state_to_envi_doc(doc, &effective, &old, &session.dek)?;
     reconcile(doc, &envi).map_err(|e| Error::Other(e.to_string()))?;
 
     Ok(derive_state(doc, session, &effective))
@@ -97,40 +99,100 @@ pub fn apply_set_state(
 
 /// Build an EnviDocument from State by encrypting all plaintext secrets.
 /// Starts from the current doc (preserves doc_version, document_signature, etc.)
-/// then overwrites secrets and members entirely from State.
-pub fn state_to_envi_doc(doc: &AutoCommit, state: &State, dek: &[u8; 32]) -> Result<EnviDocument> {
+/// then overwrites secrets and members but only those that changed.
+pub fn state_to_envi_doc(
+    doc: &AutoCommit,
+    new_state: &State,
+    old_state: &State,
+    dek: &[u8; 32],
+) -> Result<EnviDocument> {
     let mut envi: EnviDocument = hydrate(doc).map_err(|e| Error::Other(e.to_string()))?;
 
-    envi.secrets.clear();
-    for s in &state.secrets {
-        let tags_json = serde_json::to_string(&s.tags)?;
-        envi.secrets.insert(
-            s.id.clone(),
-            lib::types::Secret {
-                id: s.id.clone(),
-                name: encrypt_field(&s.name, dek)?,
-                value: encrypt_field(&s.value, dek)?,
-                description: encrypt_field(&s.description, dek)?,
-                tags: encrypt_field(&tags_json, dek)?,
-            },
-        );
+    // Index old plaintext secrets for O(1) lookup
+    let old_map: HashMap<&str, &Secret> = old_state
+        .secrets
+        .iter()
+        .map(|s| (s.id.as_str(), s))
+        .collect();
+
+    // Remove deleted secrets
+    let new_ids: HashSet<&str> = new_state.secrets.iter().map(|s| s.id.as_str()).collect();
+    envi.secrets.retain(|id, _| new_ids.contains(id.as_str()));
+
+    for secret in &new_state.secrets {
+        let tags_json = serde_json::to_string(&secret.tags)?;
+
+        match old_map.get(secret.id.as_str()) {
+            Some(old) => {
+                // Secret existed before — only re-encrypt changed fields
+                let enc = envi.secrets.entry(secret.id.clone()).or_default();
+                if old.name != secret.name {
+                    enc.name = encrypt_field(&secret.name, dek)?;
+                }
+                if old.value != secret.value {
+                    enc.value = encrypt_field(&secret.value, dek)?;
+                }
+                if old.description != secret.description {
+                    enc.description = encrypt_field(&secret.description, dek)?;
+                }
+                let old_tags_json = serde_json::to_string(&old.tags)?;
+                if old_tags_json != tags_json {
+                    enc.tags = encrypt_field(&tags_json, dek)?;
+                }
+            }
+            None => {
+                // New secret — encrypt all fields
+                envi.secrets.insert(
+                    secret.id.clone(),
+                    lib::types::Secret {
+                        id: secret.id.clone(),
+                        name: encrypt_field(&secret.name, dek)?,
+                        value: encrypt_field(&secret.value, dek)?,
+                        description: encrypt_field(&secret.description, dek)?,
+                        tags: encrypt_field(&tags_json, dek)?,
+                    },
+                );
+            }
+        }
     }
 
-    envi.members.clear();
-    for m in &state.members {
-        envi.members.insert(
-            m.id.clone(),
-            lib::types::Member {
-                id: m.id.clone(),
-                email: m.email.clone(),
-                public_key: m.public_key.clone(),
-                wrapped_dek: m.wrapped_dek.clone(),
-                signing_key: m.signing_key.clone(),
-                key_mac: m.key_mac.clone(),
-                invite_mac: m.invite_mac.clone(),
-                invite_nonce: m.invite_nonce.clone(),
-            },
-        );
+    // Members: same pattern — preserve unchanged encrypted fields
+    let old_member_map: HashMap<&str, &super::state::Member> = old_state
+        .members
+        .iter()
+        .map(|member| (member.id.as_str(), member))
+        .collect();
+
+    let new_member_ids: HashSet<&str> = new_state
+        .members
+        .iter()
+        .map(|member| member.id.as_str())
+        .collect();
+
+    envi.members
+        .retain(|id, _| new_member_ids.contains(id.as_str()));
+
+    for member in &new_state.members {
+        if old_member_map.contains_key(member.id.as_str()) {
+            // Only overwrite fields that are explicitly being changed
+            let enc = envi.members.entry(member.id.clone()).or_default();
+            enc.wrapped_dek = member.wrapped_dek.clone();
+            enc.key_mac = member.key_mac.clone();
+        } else {
+            envi.members.insert(
+                member.id.clone(),
+                lib::types::Member {
+                    id: member.id.clone(),
+                    email: member.email.clone(),
+                    public_key: member.public_key.clone(),
+                    wrapped_dek: member.wrapped_dek.clone(),
+                    signing_key: member.signing_key.clone(),
+                    key_mac: member.key_mac.clone(),
+                    invite_mac: member.invite_mac.clone(),
+                    invite_nonce: member.invite_nonce.clone(),
+                },
+            );
+        }
     }
 
     Ok(envi)
