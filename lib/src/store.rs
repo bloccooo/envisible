@@ -1,7 +1,7 @@
 use crate::{
     crypto::{
-        canonical_document_bytes, derive_signing_key, get_public_key, sign_document,
-        unwrap_dek, verify_document_signature, verify_key_mac,
+        canonical_document_bytes, derive_signing_key, get_public_key, sign_document, unwrap_dek,
+        verify_document_signature, verify_key_mac,
     },
     error::{Error, Result},
     storage::{pull_prefix, push_path, StorageBackend, StorageConfig},
@@ -45,13 +45,6 @@ impl Store {
         let prefix = pull_prefix(&self.vault_id);
 
         let local_doc = self.load_local(&prefix).await;
-        let local_compaction_date = local_doc
-            .as_ref()
-            .and_then(|d| {
-                let s: EnviDocument = hydrate(d).ok()?;
-                Some(s.compaction_date.unwrap_or(0))
-            })
-            .unwrap_or(0);
 
         let remote_docs: Vec<AutoCommit> =
             match timeout(REMOTE_TIMEOUT, self.remote.pull(&prefix)).await {
@@ -59,38 +52,41 @@ impl Store {
                 _ => vec![],
             };
 
-        let max_remote_compaction_date = remote_docs
-            .iter()
-            .filter_map(|d| {
-                let s: EnviDocument = hydrate(d).ok()?;
-                Some(s.compaction_date.unwrap_or(0))
+        // Hydrate each remote doc once, pair with its state, reuse for both passes.
+        let remote_docs_with_state: Vec<(AutoCommit, Option<EnviDocument>)> = remote_docs
+            .into_iter()
+            .map(|d| {
+                let s: Option<EnviDocument> = hydrate(&d).ok();
+                (d, s)
             })
+            .collect();
+
+        let max_remote_compaction_date = remote_docs_with_state
+            .iter()
+            .filter_map(|(_, s)| s.as_ref().map(|s| s.compaction_date.unwrap_or(0)))
             .max()
             .unwrap_or(0);
 
-        // If any remote peer has a newer compaction_date, use only those docs.
-        // The compacted snapshot is authoritative — older history is discarded.
-        if max_remote_compaction_date > local_compaction_date {
-            let merged = remote_docs
-                .into_iter()
-                .filter(|d| {
-                    let s: Option<EnviDocument> = hydrate(d).ok();
-                    s.map(|s| s.compaction_date.unwrap_or(0) == max_remote_compaction_date)
-                        .unwrap_or(false)
-                })
-                .reduce(|mut a, mut b| {
-                    let _ = a.merge(&mut b);
-                    a
-                })
-                .unwrap_or_else(|| init_doc(&self.vault_id));
-            return Ok(merged);
+        let mut all: Vec<AutoCommit> = remote_docs_with_state
+            .into_iter()
+            .filter(|(_, s)| {
+                s.as_ref()
+                    .map(|s| s.compaction_date.unwrap_or(0) == max_remote_compaction_date)
+                    .unwrap_or(false)
+            })
+            .map(|(d, _)| d)
+            .collect();
+
+        if let Some(local) = local_doc {
+            let s: Option<EnviDocument> = hydrate(&local).ok();
+
+            if s.map(|s| s.compaction_date.unwrap_or(0) == max_remote_compaction_date)
+                .unwrap_or(false)
+            {
+                all.push(local);
+            }
         }
 
-        // Normal merge: combine local + all remote docs.
-        let mut all = remote_docs;
-        if let Some(local) = local_doc {
-            all.push(local);
-        }
         let merged = all
             .into_iter()
             .reduce(|mut a, mut b| {
@@ -288,7 +284,13 @@ mod tests {
         seed: u8,
         compaction_date: Option<u64>,
     ) -> Vec<u8> {
-        make_vault_doc_bytes(vault_id, &[(member_id, seed)], member_id, seed, compaction_date)
+        make_vault_doc_bytes(
+            vault_id,
+            &[(member_id, seed)],
+            member_id,
+            seed,
+            compaction_date,
+        )
     }
 
     // Build a fresh signed doc containing all listed members, signed by signer_id.
@@ -350,8 +352,16 @@ mod tests {
         .unwrap()
     }
 
-    async fn write_to_remote(remote: &StorageBackend, vault_id: &str, member_id: &str, bytes: Vec<u8>) {
-        remote.push(&push_path(vault_id, member_id), bytes).await.unwrap();
+    async fn write_to_remote(
+        remote: &StorageBackend,
+        vault_id: &str,
+        member_id: &str,
+        bytes: Vec<u8>,
+    ) {
+        remote
+            .push(&push_path(vault_id, member_id), bytes)
+            .await
+            .unwrap();
     }
 
     // ── compaction_date field ─────────────────────────────────────────────────
@@ -407,7 +417,11 @@ mod tests {
 
         let doc = store.pull().await.unwrap();
         let state: EnviDocument = hydrate(&doc).unwrap();
-        assert_eq!(state.compaction_date, Some(1000), "should adopt compacted remote");
+        assert_eq!(
+            state.compaction_date,
+            Some(1000),
+            "should adopt compacted remote"
+        );
     }
 
     #[tokio::test]
@@ -422,8 +436,20 @@ mod tests {
         // Crucially each compacted doc contains ALL members (realistic: you compact the
         // whole vault state). When Automerge resolves the conflict between the two fresh
         // `members` map objects, whichever wins still has both members inside it.
-        write_to_remote(&remote_be, vault_id, "m1", make_vault_doc_bytes(vault_id, both, "m1", 1, Some(2000))).await;
-        write_to_remote(&remote_be, vault_id, "m2", make_vault_doc_bytes(vault_id, both, "m2", 2, Some(2000))).await;
+        write_to_remote(
+            &remote_be,
+            vault_id,
+            "m1",
+            make_vault_doc_bytes(vault_id, both, "m1", 1, Some(2000)),
+        )
+        .await;
+        write_to_remote(
+            &remote_be,
+            vault_id,
+            "m2",
+            make_vault_doc_bytes(vault_id, both, "m2", 2, Some(2000)),
+        )
+        .await;
 
         let store = Store {
             vault_id: vault_id.to_string(),
@@ -448,8 +474,20 @@ mod tests {
         let remote_be = fs_backend(remote.path());
 
         // m1 compacted, m2 did not.
-        write_to_remote(&remote_be, vault_id, "m1", make_doc_bytes(vault_id, "m1", 1, Some(3000))).await;
-        write_to_remote(&remote_be, vault_id, "m2", make_doc_bytes(vault_id, "m2", 2, None)).await;
+        write_to_remote(
+            &remote_be,
+            vault_id,
+            "m1",
+            make_doc_bytes(vault_id, "m1", 1, Some(3000)),
+        )
+        .await;
+        write_to_remote(
+            &remote_be,
+            vault_id,
+            "m2",
+            make_doc_bytes(vault_id, "m2", 2, None),
+        )
+        .await;
 
         let store = Store {
             vault_id: vault_id.to_string(),
@@ -463,7 +501,10 @@ mod tests {
         // Only m1's compacted doc should be used; m2's is excluded.
         assert_eq!(state.compaction_date, Some(3000));
         assert!(state.members.contains_key("m1"));
-        assert!(!state.members.contains_key("m2"), "uncompacted peer should be excluded");
+        assert!(
+            !state.members.contains_key("m2"),
+            "uncompacted peer should be excluded"
+        );
     }
 
     #[tokio::test]
@@ -480,8 +521,20 @@ mod tests {
         let genesis = make_vault_doc_bytes(vault_id, &[("m1", 1), ("m2", 2)], "m1", 1, None);
 
         // Neither peer has compacted; each just re-signs the shared genesis.
-        write_to_remote(&remote_be, vault_id, "m1", fork_and_sign(&genesis, "m1", 1, None)).await;
-        write_to_remote(&remote_be, vault_id, "m2", fork_and_sign(&genesis, "m2", 2, None)).await;
+        write_to_remote(
+            &remote_be,
+            vault_id,
+            "m1",
+            fork_and_sign(&genesis, "m1", 1, None),
+        )
+        .await;
+        write_to_remote(
+            &remote_be,
+            vault_id,
+            "m2",
+            fork_and_sign(&genesis, "m2", 2, None),
+        )
+        .await;
 
         let store = Store {
             vault_id: vault_id.to_string(),
@@ -556,8 +609,14 @@ mod tests {
 
         let doc = store.pull().await.unwrap();
         let state: EnviDocument = hydrate(&doc).unwrap();
-        assert!(state.members.contains_key(member_id), "old vault file should survive verify_files");
-        assert_eq!(state.compaction_date, None, "missing field hydrates as None");
+        assert!(
+            state.members.contains_key(member_id),
+            "old vault file should survive verify_files"
+        );
+        assert_eq!(
+            state.compaction_date, None,
+            "missing field hydrates as None"
+        );
     }
 
     // ── Compact action logic ──────────────────────────────────────────────────
