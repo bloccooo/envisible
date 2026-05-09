@@ -160,9 +160,9 @@ fn empty_doc(id: &str) -> EnviDocument {
         name: "ws".to_string(),
         doc_version: 1,
         members: HashMap::new(),
-
         secrets: HashMap::new(),
         document_signature: String::new(),
+        compaction_date: None,
     }
 }
 

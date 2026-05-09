@@ -70,6 +70,7 @@ fn unlock_pending_member_returns_access_pending() {
 
         secrets: HashMap::new(),
         document_signature: String::new(),
+        compaction_date: None,
     };
     let mut doc = AutoCommit::new();
     reconcile(&mut doc, &state).unwrap();
@@ -139,6 +140,7 @@ fn unlock_detects_tampered_key_mac() {
 
         secrets: HashMap::new(),
         document_signature: String::new(),
+        compaction_date: None,
     };
     let mut doc = AutoCommit::new();
     reconcile(&mut doc, &state).unwrap();

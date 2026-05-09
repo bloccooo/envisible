@@ -16,6 +16,11 @@ pub struct EnviDocument {
     /// Ed25519 signature over the canonical document bytes (excluding this field).
     /// Format: "member_id:base64(signature)". Empty on unsigned documents.
     pub document_signature: String,
+    /// Unix timestamp (seconds) of the last compaction, or None/absent on old docs.
+    /// Peers treat None as 0. `missing` tells autosurgeon to return None when this
+    /// key is absent from old documents, preserving backwards compatibility.
+    #[autosurgeon(missing = "Default::default")]
+    pub compaction_date: Option<u64>,
 }
 
 #[derive(Debug, Clone, Reconcile, Hydrate, Default)]

@@ -39,13 +39,14 @@ pub struct HomePage {
     member_to_delete: Option<String>,
     member_to_grant: Option<String>,
     confirming_rotate: bool,
+    confirming_compact: bool,
     // Clipboard
     clipboard: Option<arboard::Clipboard>,
 }
 
 impl HomePage {
     pub const DEFAULT_HINT: &'static str =
-        "[n] New  [e] Edit  [d] Delete  [c] Copy  [v] Reveal  [s] Sync  [Tab] Switch  [q] Quit";
+        "[n] New  [e] Edit  [d] Delete  [c] Copy  [v] Reveal  [s] Sync  [X] Compact  [Tab] Switch  [q] Quit";
 
     pub fn new(actions_tx: Sender<Actions>, state: Arc<State>) -> Self {
         let mut page = Self {
@@ -61,6 +62,7 @@ impl HomePage {
             member_to_delete: None,
             member_to_grant: None,
             confirming_rotate: false,
+            confirming_compact: false,
             clipboard: arboard::Clipboard::new().ok(),
         };
         page.sync_focus();
@@ -303,6 +305,22 @@ impl Component for HomePage {
             return EventResult::Consumed;
         }
 
+        // Confirmation: compact vault.
+        if self.confirming_compact {
+            match key.code {
+                KeyCode::Char('y') => {
+                    self.confirming_compact = false;
+                    let _ = self.actions_tx.send(Actions::Compact).await;
+                }
+                KeyCode::Char('n') | KeyCode::Esc => {
+                    self.confirming_compact = false;
+                    self.send_hint(self.normal_hint()).await;
+                }
+                _ => {}
+            }
+            return EventResult::Consumed;
+        }
+
         // Confirmation: DEK rotate.
         if self.confirming_rotate {
             match key.code {
@@ -518,6 +536,13 @@ impl Component for HomePage {
                         .send(Actions::NavigateTo(Route::Invite))
                         .await;
                 }
+            }
+            KeyCode::Char('X') => {
+                self.confirming_compact = true;
+                self.send_warning(
+                    "Compact vault? Strips history from your file. [y] Yes  [n] No",
+                )
+                .await;
             }
             _ => return EventResult::Ignored,
         }

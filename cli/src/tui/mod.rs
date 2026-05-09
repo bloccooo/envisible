@@ -8,11 +8,12 @@ mod state;
 
 use std::io;
 use std::sync::Arc;
+use std::time::{SystemTime, UNIX_EPOCH};
 
 use std::collections::HashSet;
 
 use automerge::AutoCommit;
-use autosurgeon::hydrate;
+use autosurgeon::{hydrate, reconcile};
 use crossterm::{
     event::{self, Event, KeyCode, KeyModifiers},
     execute,
@@ -134,7 +135,10 @@ async fn run_app(
                         Ok(mut pulled) => {
                             let _ = doc.merge(&mut pulled);
                             let new_state = derive_state(&doc, &session, &state);
-                            state = Arc::new(new_state.with_footer_status(FooterStatus::Ok("✓ synced".to_string())));
+                            state = Arc::new(
+                                new_state
+                                    .with_footer_status(FooterStatus::Ok("✓ synced".to_string())),
+                            );
                             router.update(state.clone()).await;
                             continue;
                         }
@@ -195,13 +199,44 @@ async fn run_app(
                 }
                 Actions::Sync => {
                     if sync_task.is_none() {
-                        state = Arc::new(State::cloned(&state).with_footer_status(FooterStatus::Syncing));
+                        state = Arc::new(
+                            State::cloned(&state).with_footer_status(FooterStatus::Syncing),
+                        );
                         router.update(state.clone()).await;
                         let store_clone = Arc::clone(&store);
                         sync_task = Some(tokio::spawn(async move {
                             store_clone.pull().await.ok().map(|mut d| d.save())
                         }));
                     }
+                }
+                Actions::Compact => {
+                    let now = SystemTime::now()
+                        .duration_since(UNIX_EPOCH)
+                        .unwrap_or_default()
+                        .as_secs();
+
+                    let mut envi: EnviDocument =
+                        hydrate(&doc).map_err(|e| Error::Other(e.to_string()))?;
+                    envi.document_signature = String::new();
+                    envi.compaction_date = Some(now);
+
+                    let mut fresh = AutoCommit::new();
+                    reconcile(&mut fresh, &envi).map_err(|e| Error::Other(e.to_string()))?;
+                    doc = fresh;
+
+                    let new_state = derive_state(&doc, &session, &state);
+                    state = Arc::new(new_state.with_footer_status(FooterStatus::Syncing));
+                    router.update(state.clone()).await;
+
+                    let doc_bytes = doc.save();
+                    let store_clone = Arc::clone(&store);
+                    let signing_key = session.signing_key.clone();
+                    persist_task = Some(tokio::spawn(async move {
+                        match AutoCommit::load(&doc_bytes) {
+                            Ok(mut d) => store_clone.persist(&mut d, &signing_key).await.is_ok(),
+                            Err(_) => false,
+                        }
+                    }));
                 }
             }
         }

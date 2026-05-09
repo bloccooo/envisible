@@ -55,6 +55,7 @@ fn two_member_vault() -> (AutoCommit, [u8; 32]) {
 
         secrets: HashMap::new(),
         document_signature: String::new(),
+        compaction_date: None,
     };
     let mut doc = AutoCommit::new();
     reconcile(&mut doc, &state).unwrap();

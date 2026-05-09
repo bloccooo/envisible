@@ -18,4 +18,6 @@ pub enum Actions {
     SetState(Arc<State>),
     NavigateTo(Route),
     Sync,
+    /// Strip Automerge history from the local doc and re-upload a fresh snapshot.
+    Compact,
 }

@@ -2,11 +2,12 @@ use autosurgeon::{hydrate, reconcile};
 use base64::{engine::general_purpose::STANDARD as B64, Engine};
 use console::{style, Term};
 use dialoguer::{Input, Password, Select};
+use indicatif::{ProgressBar, ProgressStyle};
 use lib::{
     config::{read_config, write_config, EnviConfig, VaultConfig},
     crypto::{
-        compute_invite_mac, compute_key_mac, derive_private_key,
-        derive_signing_key, generate_dek, get_public_key, wrap_dek,
+        compute_invite_mac, compute_key_mac, derive_private_key, derive_signing_key, generate_dek,
+        get_public_key, wrap_dek,
     },
     error::Result,
     invite::{parse_invite, verify_genesis_anchor},
@@ -14,7 +15,6 @@ use lib::{
     store::Store,
     types::{EnviDocument, Member},
 };
-use indicatif::{ProgressBar, ProgressStyle};
 use std::time::Duration;
 use uuid::Uuid;
 
@@ -135,9 +135,14 @@ pub async fn run(invite_token_arg: Option<String>) -> Result<()> {
         let mut vault_options: Vec<(String, String)> = vec![]; // (id, name)
         for id in &vault_ids {
             let store = Store::new(id, &config.member_id, &storage_config)?;
-            if let Ok(doc) = store.pull().await {
+            if let Ok(result) = store.pull().await {
+                let doc = result;
                 let state: lib::types::EnviDocument = autosurgeon::hydrate(&doc)?;
-                let name = if state.name.is_empty() { id.clone() } else { state.name.clone() };
+                let name = if state.name.is_empty() {
+                    id.clone()
+                } else {
+                    state.name.clone()
+                };
                 vault_options.push((id.clone(), name));
             }
         }
@@ -262,10 +267,7 @@ pub async fn run(invite_token_arg: Option<String>) -> Result<()> {
 
         let payload = parse_invite(&invite_token)?;
 
-        let pb = spinner(&format!(
-            "Connecting to vault '{}'…",
-            payload.vault.name
-        ));
+        let pb = spinner(&format!("Connecting to vault '{}'…", payload.vault.name));
         let store = Store::new(&payload.vault.id, &config.member_id, &payload.storage)?;
         let mut doc = store.pull().await?;
         done(pb, "Connected");
@@ -298,8 +300,7 @@ pub async fn run(invite_token_arg: Option<String>) -> Result<()> {
         let passphrase = crate::passphrase::prompt_new_passphrase()?;
         println!();
 
-        let private_key =
-            derive_private_key(&passphrase, &payload.vault.id, &config.member_id)?;
+        let private_key = derive_private_key(&passphrase, &payload.vault.id, &config.member_id)?;
         let public_key = get_public_key(&private_key);
         let public_key_b64 = B64.encode(public_key);
         let signing_key = derive_signing_key(&private_key);

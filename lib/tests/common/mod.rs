@@ -58,6 +58,7 @@ pub fn setup() -> Vault {
         members,
         secrets: HashMap::new(),
         document_signature: String::new(),
+        compaction_date: None,
     };
 
     let mut doc = AutoCommit::new();
