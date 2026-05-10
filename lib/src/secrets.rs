@@ -1,7 +1,7 @@
 use crate::{
     crypto::{decrypt_field, encrypt_field},
     error::Result,
-    types::{EnviDocument, PlaintextSecret, Secret},
+    types::{PlaintextSecret, Secret, VaultDocument},
 };
 use automerge::AutoCommit;
 use autosurgeon::{hydrate, reconcile};
@@ -46,8 +46,8 @@ pub fn add_secret(
     let id = Uuid::now_v7().to_string();
     let (enc_name, enc_value, enc_desc, enc_tags) = encrypt_secret(&fields, dek)?;
 
-    let mut state: EnviDocument = hydrate(doc)?;
-    state.secrets.insert(
+    let mut vault_doc: VaultDocument = hydrate(doc)?;
+    vault_doc.secrets.insert(
         id.clone(),
         Secret {
             id,
@@ -57,14 +57,14 @@ pub fn add_secret(
             tags: enc_tags,
         },
     );
-    reconcile(doc, &state)?;
+    reconcile(doc, &vault_doc)?;
     Ok(())
 }
 
 pub fn remove_secret(doc: &mut AutoCommit, id: &str) -> Result<()> {
-    let mut state: EnviDocument = hydrate(doc)?;
-    state.secrets.remove(id);
-    reconcile(doc, &state)?;
+    let mut vault_doc: VaultDocument = hydrate(doc)?;
+    vault_doc.secrets.remove(id);
+    reconcile(doc, &vault_doc)?;
     Ok(())
 }
 
@@ -75,9 +75,9 @@ pub fn update_secret(
     fields: PlaintextSecretFields,
 ) -> Result<()> {
     let (enc_name, enc_value, enc_desc, enc_tags) = encrypt_secret(&fields, dek)?;
-    let mut state: EnviDocument = hydrate(doc)?;
+    let mut vault_doc: VaultDocument = hydrate(doc)?;
 
-    let secret = state
+    let secret = vault_doc
         .secrets
         .get_mut(id)
         .ok_or_else(|| crate::error::Error::SecretNotFound(id.to_string()))?;
@@ -86,13 +86,13 @@ pub fn update_secret(
     secret.description = enc_desc;
     secret.tags = enc_tags;
 
-    reconcile(doc, &state)?;
+    reconcile(doc, &vault_doc)?;
     Ok(())
 }
 
 pub fn list_secrets(doc: &AutoCommit, dek: &[u8; 32]) -> Result<Vec<PlaintextSecret>> {
-    let state: EnviDocument = hydrate(doc)?;
-    state
+    let vault_doc: VaultDocument = hydrate(doc)?;
+    vault_doc
         .secrets
         .values()
         .map(|s| decrypt_secret(s, dek))

@@ -19,11 +19,11 @@ use crossterm::{
     execute,
     terminal::{disable_raw_mode, enable_raw_mode, EnterAlternateScreen, LeaveAlternateScreen},
 };
+use lib::types::VaultDocument;
 use lib::{
     error::{Error, Result},
     storage::StorageConfig,
     vault_repo::{Session, VaultRepo},
-    types::EnviDocument,
 };
 use ratatui::{backend::CrosstermBackend, Terminal};
 use tokio::sync::mpsc;
@@ -83,8 +83,8 @@ async fn run_app(
 ) -> Result<()> {
     let repo = Arc::new(repo);
     let vault_id = {
-        let envi: EnviDocument = hydrate(&doc).map_err(|e| Error::Other(e.to_string()))?;
-        envi.id.clone()
+        let vault_doc: VaultDocument = hydrate(&doc).map_err(|e| Error::Other(e.to_string()))?;
+        vault_doc.id.clone()
     };
 
     let initial_state = Arc::new(derive_state(
@@ -215,13 +215,13 @@ async fn run_app(
                         .unwrap_or_default()
                         .as_secs();
 
-                    let mut envi: EnviDocument =
+                    let mut vault_doc: VaultDocument =
                         hydrate(&doc).map_err(|e| Error::Other(e.to_string()))?;
-                    envi.document_signature = String::new();
-                    envi.compaction_date = Some(now);
+                    vault_doc.document_signature = String::new();
+                    vault_doc.compaction_date = Some(now);
 
                     let mut fresh = AutoCommit::new();
-                    reconcile(&mut fresh, &envi).map_err(|e| Error::Other(e.to_string()))?;
+                    reconcile(&mut fresh, &vault_doc).map_err(|e| Error::Other(e.to_string()))?;
                     doc = fresh;
 
                     let new_state = derive_state(&doc, &session, &state);

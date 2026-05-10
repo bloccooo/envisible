@@ -7,7 +7,7 @@ use std::collections::HashMap;
 /// Secret fields (name, value, description, tags) are AES-256-GCM encrypted
 /// using the vault DEK. The DEK itself is X25519/ECIES-wrapped per member.
 #[derive(Debug, Clone, Reconcile, Hydrate, Default)]
-pub struct EnviDocument {
+pub struct VaultDocument {
     pub id: String,
     pub name: String,
     pub doc_version: u64,

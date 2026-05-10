@@ -8,8 +8,8 @@ use lib::{
     error::{Error, Result},
     members::{remove_member, rotate_dek},
     secrets::list_secrets,
+    types::VaultDocument,
     vault_repo::Session,
-    types::EnviDocument,
 };
 
 use super::state::{Member, Secret, State};
@@ -105,8 +105,8 @@ pub fn state_to_envi_doc(
     new_state: &State,
     old_state: &State,
     dek: &[u8; 32],
-) -> Result<EnviDocument> {
-    let mut envi: EnviDocument = hydrate(doc).map_err(|e| Error::Other(e.to_string()))?;
+) -> Result<VaultDocument> {
+    let mut vault_doc: VaultDocument = hydrate(doc).map_err(|e| Error::Other(e.to_string()))?;
 
     // Index old plaintext secrets for O(1) lookup
     let old_map: HashMap<&str, &Secret> = old_state
@@ -117,7 +117,9 @@ pub fn state_to_envi_doc(
 
     // Remove deleted secrets
     let new_ids: HashSet<&str> = new_state.secrets.iter().map(|s| s.id.as_str()).collect();
-    envi.secrets.retain(|id, _| new_ids.contains(id.as_str()));
+    vault_doc
+        .secrets
+        .retain(|id, _| new_ids.contains(id.as_str()));
 
     for secret in &new_state.secrets {
         let tags_json = serde_json::to_string(&secret.tags)?;
@@ -125,7 +127,7 @@ pub fn state_to_envi_doc(
         match old_map.get(secret.id.as_str()) {
             Some(old) => {
                 // Secret existed before — only re-encrypt changed fields
-                let enc = envi.secrets.entry(secret.id.clone()).or_default();
+                let enc = vault_doc.secrets.entry(secret.id.clone()).or_default();
                 if old.name != secret.name {
                     enc.name = encrypt_field(&secret.name, dek)?;
                 }
@@ -142,7 +144,7 @@ pub fn state_to_envi_doc(
             }
             None => {
                 // New secret — encrypt all fields
-                envi.secrets.insert(
+                vault_doc.secrets.insert(
                     secret.id.clone(),
                     lib::types::Secret {
                         id: secret.id.clone(),
@@ -169,17 +171,18 @@ pub fn state_to_envi_doc(
         .map(|member| member.id.as_str())
         .collect();
 
-    envi.members
+    vault_doc
+        .members
         .retain(|id, _| new_member_ids.contains(id.as_str()));
 
     for member in &new_state.members {
         if old_member_map.contains_key(member.id.as_str()) {
             // Only overwrite fields that are explicitly being changed
-            let enc = envi.members.entry(member.id.clone()).or_default();
+            let enc = vault_doc.members.entry(member.id.clone()).or_default();
             enc.wrapped_dek = member.wrapped_dek.clone();
             enc.key_mac = member.key_mac.clone();
         } else {
-            envi.members.insert(
+            vault_doc.members.insert(
                 member.id.clone(),
                 lib::types::Member {
                     id: member.id.clone(),
@@ -195,14 +198,14 @@ pub fn state_to_envi_doc(
         }
     }
 
-    Ok(envi)
+    Ok(vault_doc)
 }
 
 /// Re-derive the in-memory State from the automerge document.
 /// Copies footer from `current` so hints and status are preserved.
 /// Always resets rotate_dek and pending_grants.
 pub fn derive_state(doc: &AutoCommit, session: &Session, current: &State) -> State {
-    let envi: EnviDocument = hydrate(doc).unwrap_or_default();
+    let vault_doc: VaultDocument = hydrate(doc).unwrap_or_default();
 
     let mut secrets: Vec<Secret> = list_secrets(doc, &session.dek)
         .unwrap_or_default()
@@ -217,7 +220,7 @@ pub fn derive_state(doc: &AutoCommit, session: &Session, current: &State) -> Sta
         .collect();
     secrets.sort_by(|a, b| a.name.to_lowercase().cmp(&b.name.to_lowercase()));
 
-    let mut members: Vec<Member> = envi
+    let mut members: Vec<Member> = vault_doc
         .members
         .values()
         .map(|m| Member {

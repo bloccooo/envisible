@@ -8,7 +8,7 @@ use lib::{
         compute_key_mac, derive_private_key, derive_signing_key, generate_dek, get_public_key,
         wrap_dek,
     },
-    types::{EnviDocument, Member},
+    types::{Member, VaultDocument},
 };
 use std::collections::HashMap;
 
@@ -51,7 +51,7 @@ pub fn setup() -> Vault {
         },
     );
 
-    let state = EnviDocument {
+    let vault_doc = VaultDocument {
         id: VAULT_ID.to_string(),
         name: "Test Vault".to_string(),
         doc_version: 1,
@@ -62,7 +62,7 @@ pub fn setup() -> Vault {
     };
 
     let mut doc = AutoCommit::new();
-    reconcile(&mut doc, &state).unwrap();
+    reconcile(&mut doc, &vault_doc).unwrap();
 
     Vault {
         doc,

@@ -12,8 +12,8 @@ use lib::{
     error::Result,
     invite::{parse_invite, verify_genesis_anchor},
     storage::StorageConfig,
+    types::{Member, VaultDocument},
     vault_repo::VaultRepo,
-    types::{EnviDocument, Member},
 };
 use std::time::Duration;
 use uuid::Uuid;
@@ -137,11 +137,11 @@ pub async fn run(invite_token_arg: Option<String>) -> Result<()> {
             let repo = VaultRepo::new(id, &config.member_id, &storage_config)?;
             if let Ok(result) = repo.pull().await {
                 let doc = result;
-                let state: lib::types::EnviDocument = autosurgeon::hydrate(&doc)?;
-                let name = if state.name.is_empty() {
+                let vault_doc: VaultDocument = autosurgeon::hydrate(&doc)?;
+                let name = if vault_doc.name.is_empty() {
                     id.clone()
                 } else {
-                    state.name.clone()
+                    vault_doc.name.clone()
                 };
                 vault_options.push((id.clone(), name));
             }
@@ -218,8 +218,8 @@ pub async fn run(invite_token_arg: Option<String>) -> Result<()> {
         });
         write_config(&config).await?;
 
-        let mut state: lib::types::EnviDocument = autosurgeon::hydrate(&doc)?;
-        state.members.insert(
+        let mut vault_doc: VaultDocument = autosurgeon::hydrate(&doc)?;
+        vault_doc.members.insert(
             config.member_id.clone(),
             lib::types::Member {
                 id: config.member_id.clone(),
@@ -232,7 +232,7 @@ pub async fn run(invite_token_arg: Option<String>) -> Result<()> {
                 invite_nonce: String::new(),
             },
         );
-        reconcile(&mut doc, &state)?;
+        reconcile(&mut doc, &vault_doc)?;
 
         let pb = spinner("Registering your keys…");
         repo.persist(&mut doc, &signing_key).await?;
@@ -276,8 +276,8 @@ pub async fn run(invite_token_arg: Option<String>) -> Result<()> {
         // document matches the fingerprint embedded in the invite token.
         // This detects a forged or swapped document on first pull.
         {
-            let state_check: EnviDocument = autosurgeon::hydrate(&doc)?;
-            verify_genesis_anchor(&payload, &state_check.members)?;
+            let vault_doc: VaultDocument = autosurgeon::hydrate(&doc)?;
+            verify_genesis_anchor(&payload, &vault_doc.members)?;
         }
 
         println!(
@@ -337,8 +337,8 @@ pub async fn run(invite_token_arg: Option<String>) -> Result<()> {
         write_config(&config).await?;
 
         // Add ourselves as a pending member (key_mac set by granter who knows the DEK)
-        let mut state: EnviDocument = hydrate(&doc)?;
-        state.members.insert(
+        let mut vault_doc: VaultDocument = hydrate(&doc)?;
+        vault_doc.members.insert(
             config.member_id.clone(),
             Member {
                 id: config.member_id.clone(),
@@ -351,7 +351,7 @@ pub async fn run(invite_token_arg: Option<String>) -> Result<()> {
                 invite_nonce,
             },
         );
-        reconcile(&mut doc, &state)?;
+        reconcile(&mut doc, &vault_doc)?;
 
         let pb = spinner("Registering your keys…");
         repo.persist(&mut doc, &signing_key).await?;
@@ -440,10 +440,10 @@ pub async fn run(invite_token_arg: Option<String>) -> Result<()> {
             &signing_public_key,
         );
 
-        let mut state: EnviDocument = hydrate(&doc)?;
-        state.id = vault_id;
-        state.name = vault_name.clone();
-        state.members.insert(
+        let mut vault_doc: VaultDocument = hydrate(&doc)?;
+        vault_doc.id = vault_id;
+        vault_doc.name = vault_name.clone();
+        vault_doc.members.insert(
             config.member_id.clone(),
             Member {
                 id: config.member_id.clone(),
@@ -456,7 +456,7 @@ pub async fn run(invite_token_arg: Option<String>) -> Result<()> {
                 invite_nonce: String::new(),
             },
         );
-        reconcile(&mut doc, &state)?;
+        reconcile(&mut doc, &vault_doc)?;
 
         let pb = spinner("Encrypting and saving…");
         repo.persist(&mut doc, &signing_key).await?;

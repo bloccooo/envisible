@@ -4,8 +4,8 @@ use autosurgeon::reconcile;
 use base64::{engine::general_purpose::STANDARD as B64, Engine};
 use lib::{
     crypto::{derive_private_key, get_public_key, wrap_dek},
-    store::unlock,
-    types::{EnviDocument, Member},
+    types::{Member, VaultDocument},
+    vault_repo::unlock,
 };
 use std::collections::HashMap;
 
@@ -26,16 +26,22 @@ fn unlock_returns_correct_dek() {
 #[test]
 fn unlock_with_wrong_passphrase_returns_not_a_member() {
     let ws = common::setup();
-    let wrong_key = derive_private_key("wrong-passphrase", common::VAULT_ID, common::MEMBER_ID).unwrap();
-    let err = unlock(&ws.doc, &wrong_key).err().expect("should return an error");
+    let wrong_key =
+        derive_private_key("wrong-passphrase", common::VAULT_ID, common::MEMBER_ID).unwrap();
+    let err = unlock(&ws.doc, &wrong_key)
+        .err()
+        .expect("should return an error");
     assert!(matches!(err, lib::error::Error::NotAMember));
 }
 
 #[test]
 fn unlock_with_wrong_member_id_returns_not_a_member() {
     let ws = common::setup();
-    let wrong_key = derive_private_key(common::PASSPHRASE, common::VAULT_ID, "other-member-id").unwrap();
-    let err = unlock(&ws.doc, &wrong_key).err().expect("should return an error");
+    let wrong_key =
+        derive_private_key(common::PASSPHRASE, common::VAULT_ID, "other-member-id").unwrap();
+    let err = unlock(&ws.doc, &wrong_key)
+        .err()
+        .expect("should return an error");
     assert!(matches!(err, lib::error::Error::NotAMember));
 }
 
@@ -62,7 +68,7 @@ fn unlock_pending_member_returns_access_pending() {
         },
     );
 
-    let state = EnviDocument {
+    let vault_doc = VaultDocument {
         id: "ws".to_string(),
         name: "ws".to_string(),
         doc_version: 1,
@@ -73,9 +79,11 @@ fn unlock_pending_member_returns_access_pending() {
         compaction_date: None,
     };
     let mut doc = AutoCommit::new();
-    reconcile(&mut doc, &state).unwrap();
+    reconcile(&mut doc, &vault_doc).unwrap();
 
-    let err = unlock(&doc, &private_key).err().expect("should return an error");
+    let err = unlock(&doc, &private_key)
+        .err()
+        .expect("should return an error");
     assert!(matches!(err, lib::error::Error::AccessPending));
 }
 
@@ -132,7 +140,7 @@ fn unlock_detects_tampered_key_mac() {
         },
     );
 
-    let state = EnviDocument {
+    let vault_doc = VaultDocument {
         id: "vault-id".to_string(),
         name: "Vault".to_string(),
         doc_version: 1,
@@ -143,8 +151,10 @@ fn unlock_detects_tampered_key_mac() {
         compaction_date: None,
     };
     let mut doc = AutoCommit::new();
-    reconcile(&mut doc, &state).unwrap();
+    reconcile(&mut doc, &vault_doc).unwrap();
 
-    let err = unlock(&doc, &private_key).err().expect("should return an error");
+    let err = unlock(&doc, &private_key)
+        .err()
+        .expect("should return an error");
     assert!(matches!(err, lib::error::Error::InvalidKeyMac(_)));
 }

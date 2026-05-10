@@ -5,7 +5,7 @@ use crate::{
     },
     error::{Error, Result},
     storage::{pull_prefix, push_path, StorageBackend, StorageConfig},
-    types::EnviDocument,
+    types::VaultDocument,
 };
 use automerge::AutoCommit;
 use autosurgeon::{hydrate, reconcile};
@@ -53,10 +53,10 @@ impl VaultRepo {
             };
 
         // Hydrate each remote doc once, pair with its state, reuse for both passes.
-        let remote_docs_with_state: Vec<(AutoCommit, Option<EnviDocument>)> = remote_docs
+        let remote_docs_with_state: Vec<(AutoCommit, Option<VaultDocument>)> = remote_docs
             .into_iter()
             .map(|d| {
-                let s: Option<EnviDocument> = hydrate(&d).ok();
+                let s: Option<VaultDocument> = hydrate(&d).ok();
                 (d, s)
             })
             .collect();
@@ -78,7 +78,7 @@ impl VaultRepo {
             .collect();
 
         if let Some(local) = local_doc {
-            let s: Option<EnviDocument> = hydrate(&local).ok();
+            let s: Option<VaultDocument> = hydrate(&local).ok();
 
             if s.map(|s| s.compaction_date.unwrap_or(0) == max_remote_compaction_date)
                 .unwrap_or(false)
@@ -93,7 +93,7 @@ impl VaultRepo {
                 let _ = a.merge(&mut b);
                 a
             })
-            .unwrap_or_else(|| init_doc(&self.vault_id));
+            .unwrap_or_else(|| init_vault(&self.vault_id));
 
         Ok(merged)
     }
@@ -105,10 +105,10 @@ impl VaultRepo {
         signing_key: &ed25519_dalek::SigningKey,
     ) -> Result<()> {
         // Sign: compute canonical bytes, produce signature, store in document
-        let mut state: EnviDocument = hydrate(doc as &AutoCommit)?;
-        let canonical = canonical_document_bytes(&state);
-        state.document_signature = sign_document(&canonical, &self.member_id, signing_key);
-        reconcile(doc, &state)?;
+        let mut vault_doc: VaultDocument = hydrate(doc as &AutoCommit)?;
+        let canonical = canonical_document_bytes(&vault_doc);
+        vault_doc.document_signature = sign_document(&canonical, &self.member_id, signing_key);
+        reconcile(doc, &vault_doc)?;
 
         let data = doc.save();
         let push = push_path(&self.vault_id, &self.member_id);
@@ -138,15 +138,15 @@ fn verify_files(files: Vec<Vec<u8>>) -> Vec<AutoCommit> {
         .into_iter()
         .filter_map(|bytes| {
             let doc = AutoCommit::load(&bytes).ok()?;
-            let state: EnviDocument = hydrate(&doc).ok()?;
+            let vault_doc: VaultDocument = hydrate(&doc).ok()?;
 
-            if state.document_signature.is_empty() {
+            if vault_doc.document_signature.is_empty() {
                 eprintln!("warning: skipping unsigned member file");
                 return None;
             }
 
-            let member_id = state.document_signature.splitn(2, ':').next()?;
-            let member = state.members.get(member_id)?;
+            let member_id = vault_doc.document_signature.splitn(2, ':').next()?;
+            let member = vault_doc.members.get(member_id)?;
 
             if member.signing_key.is_empty() {
                 eprintln!(
@@ -155,10 +155,10 @@ fn verify_files(files: Vec<Vec<u8>>) -> Vec<AutoCommit> {
                 return None;
             }
 
-            let canonical = canonical_document_bytes(&state);
+            let canonical = canonical_document_bytes(&vault_doc);
             match verify_document_signature(
                 &canonical,
-                &state.document_signature,
+                &vault_doc.document_signature,
                 &member.signing_key,
             ) {
                 Ok(()) => Some(doc),
@@ -173,9 +173,9 @@ fn verify_files(files: Vec<Vec<u8>>) -> Vec<AutoCommit> {
         .collect()
 }
 
-fn init_doc(vault_id: &str) -> AutoCommit {
+fn init_vault(vault_id: &str) -> AutoCommit {
     let mut doc = AutoCommit::new();
-    let state = EnviDocument {
+    let vault_doc = VaultDocument {
         id: vault_id.to_string(),
         name: String::new(),
         doc_version: 0,
@@ -184,7 +184,7 @@ fn init_doc(vault_id: &str) -> AutoCommit {
         document_signature: String::new(),
         compaction_date: None,
     };
-    reconcile(&mut doc, &state).expect("init_doc reconcile failed");
+    reconcile(&mut doc, &vault_doc).expect("init_doc reconcile failed");
     doc
 }
 
@@ -208,12 +208,12 @@ pub struct Session {
 /// Unlock the document for the given private key.
 /// Verifies all member key MACs using the decrypted DEK.
 pub fn unlock(doc: &AutoCommit, private_key: &[u8; 32]) -> Result<Session> {
-    let state: EnviDocument = hydrate(doc)?;
+    let vault_doc: VaultDocument = hydrate(doc)?;
 
     let public_key = get_public_key(private_key);
     let pub_key_b64 = B64.encode(public_key);
 
-    let member = state
+    let member = vault_doc
         .members
         .values()
         .find(|m| m.public_key == pub_key_b64)
@@ -226,7 +226,7 @@ pub fn unlock(doc: &AutoCommit, private_key: &[u8; 32]) -> Result<Session> {
     let dek = unwrap_dek(&member.wrapped_dek, private_key)?;
 
     // Verify key MACs for all members that have one
-    for m in state.members.values() {
+    for m in vault_doc.members.values() {
         if m.key_mac.is_empty() {
             continue; // pending member or old client — skip
         }
@@ -250,7 +250,7 @@ mod tests {
     use crate::{
         crypto::{canonical_document_bytes, derive_signing_key, sign_document},
         storage::{push_path, FsConfig, StorageConfig},
-        types::{EnviDocument, Member},
+        types::{Member, VaultDocument},
     };
     use autosurgeon::reconcile;
     use base64::{engine::general_purpose::STANDARD as B64, Engine};
@@ -308,7 +308,7 @@ mod tests {
             members.insert(mid.to_string(), test_member(mid, seed));
         }
 
-        let mut state = EnviDocument {
+        let mut vault_doc = VaultDocument {
             id: vault_id.to_string(),
             name: "Test Vault".to_string(),
             doc_version: 0,
@@ -318,11 +318,11 @@ mod tests {
             compaction_date,
         };
 
-        let canonical = canonical_document_bytes(&state);
-        state.document_signature = sign_document(&canonical, signer_id, &sk);
+        let canonical = canonical_document_bytes(&vault_doc);
+        vault_doc.document_signature = sign_document(&canonical, signer_id, &sk);
 
         let mut doc = AutoCommit::new();
-        reconcile(&mut doc, &state).unwrap();
+        reconcile(&mut doc, &vault_doc).unwrap();
         doc.save()
     }
 
@@ -336,12 +336,12 @@ mod tests {
     ) -> Vec<u8> {
         let sk = derive_signing_key(&test_private_key(signer_seed));
         let mut doc = AutoCommit::load(source_bytes).unwrap();
-        let mut state: EnviDocument = hydrate(&doc).unwrap();
-        state.compaction_date = compaction_date;
-        state.document_signature = String::new();
-        let canonical = canonical_document_bytes(&state);
-        state.document_signature = sign_document(&canonical, signer_id, &sk);
-        reconcile(&mut doc, &state).unwrap();
+        let mut vault_doc: VaultDocument = hydrate(&doc).unwrap();
+        vault_doc.compaction_date = compaction_date;
+        vault_doc.document_signature = String::new();
+        let canonical = canonical_document_bytes(&vault_doc);
+        vault_doc.document_signature = sign_document(&canonical, signer_id, &sk);
+        reconcile(&mut doc, &vault_doc).unwrap();
         doc.save()
     }
 
@@ -370,16 +370,16 @@ mod tests {
     fn compaction_date_none_treated_as_zero() {
         let bytes = make_doc_bytes("v1", "m1", 1, None);
         let doc = AutoCommit::load(&bytes).unwrap();
-        let state: EnviDocument = hydrate(&doc).unwrap();
-        assert_eq!(state.compaction_date.unwrap_or(0), 0);
+        let vault_doc: VaultDocument = hydrate(&doc).unwrap();
+        assert_eq!(vault_doc.compaction_date.unwrap_or(0), 0);
     }
 
     #[test]
     fn compaction_date_some_roundtrips() {
         let bytes = make_doc_bytes("v1", "m1", 1, Some(42_000));
         let doc = AutoCommit::load(&bytes).unwrap();
-        let state: EnviDocument = hydrate(&doc).unwrap();
-        assert_eq!(state.compaction_date, Some(42_000));
+        let vault_doc: VaultDocument = hydrate(&doc).unwrap();
+        assert_eq!(vault_doc.compaction_date, Some(42_000));
     }
 
     // ── pull() compaction logic ───────────────────────────────────────────────
@@ -416,9 +416,9 @@ mod tests {
         };
 
         let doc = repo.pull().await.unwrap();
-        let state: EnviDocument = hydrate(&doc).unwrap();
+        let vault_doc: VaultDocument = hydrate(&doc).unwrap();
         assert_eq!(
-            state.compaction_date,
+            vault_doc.compaction_date,
             Some(1000),
             "should adopt compacted remote"
         );
@@ -459,11 +459,11 @@ mod tests {
         };
 
         let doc = repo.pull().await.unwrap();
-        let state: EnviDocument = hydrate(&doc).unwrap();
+        let vault_doc: VaultDocument = hydrate(&doc).unwrap();
         // Both members' data should appear after merging the two compacted docs.
-        assert!(state.members.contains_key("m1"));
-        assert!(state.members.contains_key("m2"));
-        assert_eq!(state.compaction_date, Some(2000));
+        assert!(vault_doc.members.contains_key("m1"));
+        assert!(vault_doc.members.contains_key("m2"));
+        assert_eq!(vault_doc.compaction_date, Some(2000));
     }
 
     #[tokio::test]
@@ -497,12 +497,12 @@ mod tests {
         };
 
         let doc = repo.pull().await.unwrap();
-        let state: EnviDocument = hydrate(&doc).unwrap();
+        let vault_doc: VaultDocument = hydrate(&doc).unwrap();
         // Only m1's compacted doc should be used; m2's is excluded.
-        assert_eq!(state.compaction_date, Some(3000));
-        assert!(state.members.contains_key("m1"));
+        assert_eq!(vault_doc.compaction_date, Some(3000));
+        assert!(vault_doc.members.contains_key("m1"));
         assert!(
-            !state.members.contains_key("m2"),
+            !vault_doc.members.contains_key("m2"),
             "uncompacted peer should be excluded"
         );
     }
@@ -544,11 +544,11 @@ mod tests {
         };
 
         let doc = repo.pull().await.unwrap();
-        let state: EnviDocument = hydrate(&doc).unwrap();
+        let vault_doc: VaultDocument = hydrate(&doc).unwrap();
         // Normal CRDT merge: both members should appear.
-        assert!(state.members.contains_key("m1"));
-        assert!(state.members.contains_key("m2"));
-        assert_eq!(state.compaction_date.unwrap_or(0), 0);
+        assert!(vault_doc.members.contains_key("m1"));
+        assert!(vault_doc.members.contains_key("m2"));
+        assert_eq!(vault_doc.compaction_date.unwrap_or(0), 0);
     }
 
     // ── Backwards compatibility ───────────────────────────────────────────────
@@ -590,10 +590,10 @@ mod tests {
         let mut doc = AutoCommit::new();
         reconcile(&mut doc, &old_state).unwrap();
         // Sign it (using the new canonical bytes which still exclude compaction_date)
-        let new_state: EnviDocument = hydrate(&doc).unwrap();
-        let canonical = crate::crypto::canonical_document_bytes(&new_state);
+        let vault_doc: VaultDocument = hydrate(&doc).unwrap();
+        let canonical = crate::crypto::canonical_document_bytes(&vault_doc);
         let sig = crate::crypto::sign_document(&canonical, member_id, &sk);
-        let mut signed_state = new_state;
+        let mut signed_state = vault_doc;
         signed_state.document_signature = sig;
         reconcile(&mut doc, &signed_state).unwrap();
         let old_bytes = doc.save();
@@ -608,13 +608,13 @@ mod tests {
         };
 
         let doc = repo.pull().await.unwrap();
-        let state: EnviDocument = hydrate(&doc).unwrap();
+        let vault_doc: VaultDocument = hydrate(&doc).unwrap();
         assert!(
-            state.members.contains_key(member_id),
+            vault_doc.members.contains_key(member_id),
             "old vault file should survive verify_files"
         );
         assert_eq!(
-            state.compaction_date, None,
+            vault_doc.compaction_date, None,
             "missing field hydrates as None"
         );
     }
@@ -629,20 +629,20 @@ mod tests {
         // Build a doc with accumulated history.
         let mut doc = AutoCommit::load(&make_doc_bytes(vault_id, member_id, 1, None)).unwrap();
         for i in 0..100u64 {
-            let mut state: EnviDocument = hydrate(&doc).unwrap();
-            state.doc_version = i;
-            reconcile(&mut doc, &state).unwrap();
+            let mut vault_doc: VaultDocument = hydrate(&doc).unwrap();
+            vault_doc.doc_version = i;
+            reconcile(&mut doc, &vault_doc).unwrap();
         }
         let size_before = doc.save().len();
 
         // Simulate Actions::Compact: reconcile current state into a fresh doc.
         let now = 99_999u64;
-        let mut envi: EnviDocument = hydrate(&doc).unwrap();
-        envi.document_signature = String::new();
-        envi.compaction_date = Some(now);
+        let mut vault_doc: VaultDocument = hydrate(&doc).unwrap();
+        vault_doc.document_signature = String::new();
+        vault_doc.compaction_date = Some(now);
 
         let mut fresh = AutoCommit::new();
-        reconcile(&mut fresh, &envi).unwrap();
+        reconcile(&mut fresh, &vault_doc).unwrap();
         let size_after = fresh.save().len();
 
         assert!(
@@ -650,9 +650,9 @@ mod tests {
             "compacted doc ({size_after} B) should be smaller than doc with 100 ops ({size_before} B)",
         );
 
-        let fresh_state: EnviDocument = hydrate(&fresh).unwrap();
-        assert_eq!(fresh_state.doc_version, 99);
-        assert_eq!(fresh_state.compaction_date, Some(99_999));
-        assert!(fresh_state.document_signature.is_empty());
+        let vault_doc: VaultDocument = hydrate(&fresh).unwrap();
+        assert_eq!(vault_doc.doc_version, 99);
+        assert_eq!(vault_doc.compaction_date, Some(99_999));
+        assert!(vault_doc.document_signature.is_empty());
     }
 }

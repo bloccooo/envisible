@@ -7,7 +7,7 @@ use lib::{
         derive_signing_key, encrypt_field, generate_dek, get_public_key, sign_document, unwrap_dek,
         verify_document_signature, verify_key_mac, wrap_dek,
     },
-    types::{EnviDocument, Member},
+    types::{VaultDocument, Member},
 };
 use std::collections::HashMap;
 
@@ -154,8 +154,8 @@ fn key_mac_fails_with_tampered_public_key() {
 
 // --- Canonical document bytes ---
 
-fn empty_doc(id: &str) -> EnviDocument {
-    EnviDocument {
+fn empty_doc(id: &str) -> VaultDocument {
+    VaultDocument {
         id: id.to_string(),
         name: "ws".to_string(),
         doc_version: 1,

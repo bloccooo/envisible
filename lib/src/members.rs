@@ -1,7 +1,7 @@
 use crate::{
     crypto::{compute_key_mac, decrypt_field, encrypt_field, generate_dek, wrap_dek},
     error::{Error, Result},
-    types::EnviDocument,
+    types::VaultDocument,
 };
 use automerge::AutoCommit;
 use autosurgeon::{hydrate, reconcile};
@@ -14,34 +14,34 @@ pub fn remove_member(
     current_dek: &[u8; 32],
     member_id: &str,
 ) -> Result<[u8; 32]> {
-    let mut state: EnviDocument = hydrate(doc)?;
+    let mut vault_doc: VaultDocument = hydrate(doc)?;
 
-    if !state.members.contains_key(member_id) {
+    if !vault_doc.members.contains_key(member_id) {
         return Err(Error::Other(format!("member not found: {member_id}")));
     }
 
-    state.members.remove(member_id);
-    let new_dek = rotate_dek_in_state(&mut state, current_dek)?;
-    reconcile(doc, &state)?;
+    vault_doc.members.remove(member_id);
+    let new_dek = rotate_dek_in_state(&mut vault_doc, current_dek)?;
+    reconcile(doc, &vault_doc)?;
     Ok(new_dek)
 }
 
 /// Manually rotate the DEK without removing any member.
 /// Returns the new DEK — callers must update their session accordingly.
 pub fn rotate_dek(doc: &mut AutoCommit, current_dek: &[u8; 32]) -> Result<[u8; 32]> {
-    let mut state: EnviDocument = hydrate(doc)?;
-    let new_dek = rotate_dek_in_state(&mut state, current_dek)?;
-    reconcile(doc, &state)?;
+    let mut vault_doc: VaultDocument = hydrate(doc)?;
+    let new_dek = rotate_dek_in_state(&mut vault_doc, current_dek)?;
+    reconcile(doc, &vault_doc)?;
     Ok(new_dek)
 }
 
 /// Core rotation logic: decrypt all secrets, generate a new DEK, re-encrypt
 /// secrets and re-wrap the DEK for all active members in `state`.
 /// Returns the new DEK.
-fn rotate_dek_in_state(state: &mut EnviDocument, current_dek: &[u8; 32]) -> Result<[u8; 32]> {
+fn rotate_dek_in_state(vault_doc: &mut VaultDocument, current_dek: &[u8; 32]) -> Result<[u8; 32]> {
     // Decrypt all secrets with the current DEK.
     // Store as (id, name, value, description, tags_json).
-    let plaintexts: Vec<(String, String, String, String, String)> = state
+    let plaintexts: Vec<(String, String, String, String, String)> = vault_doc
         .secrets
         .values()
         .map(|s| {
@@ -59,7 +59,7 @@ fn rotate_dek_in_state(state: &mut EnviDocument, current_dek: &[u8; 32]) -> Resu
 
     // Re-encrypt all secrets with the new DEK.
     for (id, name, value, description, tags_json) in &plaintexts {
-        let secret = state.secrets.get_mut(id).expect("secret must exist");
+        let secret = vault_doc.secrets.get_mut(id).expect("secret must exist");
         secret.name = encrypt_field(name, &new_dek)?;
         secret.value = encrypt_field(value, &new_dek)?;
         secret.description = encrypt_field(description, &new_dek)?;
@@ -69,7 +69,7 @@ fn rotate_dek_in_state(state: &mut EnviDocument, current_dek: &[u8; 32]) -> Resu
     // Re-wrap the new DEK for every remaining active member.
     // Pending members (empty wrapped_dek) are left pending — they need
     // to be re-granted by an active member using the new DEK.
-    for member in state.members.values_mut() {
+    for member in vault_doc.members.values_mut() {
         if member.wrapped_dek.is_empty() {
             continue;
         }
@@ -82,7 +82,12 @@ fn rotate_dek_in_state(state: &mut EnviDocument, current_dek: &[u8; 32]) -> Resu
         member.wrapped_dek = wrap_dek(&new_dek, &pub_key)?;
         // Refresh the key MAC so it remains valid under the new DEK
         if !member.key_mac.is_empty() {
-            member.key_mac = compute_key_mac(&new_dek, &member.id, &member.public_key, &member.signing_key);
+            member.key_mac = compute_key_mac(
+                &new_dek,
+                &member.id,
+                &member.public_key,
+                &member.signing_key,
+            );
         }
     }
 

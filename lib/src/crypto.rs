@@ -1,5 +1,5 @@
 use crate::error::{Error, Result};
-use crate::types::EnviDocument;
+use crate::types::VaultDocument;
 use aes_gcm::{
     aead::{Aead, KeyInit},
     Aes256Gcm, Key, Nonce,
@@ -355,8 +355,8 @@ struct SigDocument<'a> {
 /// The `document_signature` field is intentionally excluded to avoid circularity.
 /// Pending members (empty `wrapped_dek`) are also excluded so that a new member
 /// adding themselves does not invalidate the existing canonical content.
-pub fn canonical_document_bytes(state: &EnviDocument) -> Vec<u8> {
-    let members = state
+pub fn canonical_document_bytes(vault_doc: &VaultDocument) -> Vec<u8> {
+    let members = vault_doc
         .members
         .iter()
         .filter(|(_, m)| !m.wrapped_dek.is_empty())
@@ -375,7 +375,7 @@ pub fn canonical_document_bytes(state: &EnviDocument) -> Vec<u8> {
         })
         .collect();
 
-    let secrets = state
+    let secrets = vault_doc
         .secrets
         .iter()
         .map(|(id, s)| {
@@ -393,10 +393,10 @@ pub fn canonical_document_bytes(state: &EnviDocument) -> Vec<u8> {
         .collect();
 
     let doc = SigDocument {
-        doc_version: state.doc_version,
-        id: &state.id,
+        doc_version: vault_doc.doc_version,
+        id: &vault_doc.id,
         members,
-        name: &state.name,
+        name: &vault_doc.name,
         secrets,
     };
 

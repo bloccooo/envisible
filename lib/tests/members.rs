@@ -10,8 +10,8 @@ use lib::{
     },
     members::{remove_member, rotate_dek},
     secrets::{add_secret, list_secrets, PlaintextSecretFields},
-    store::unlock,
-    types::{EnviDocument, Member},
+    types::{Member, VaultDocument},
+    vault_repo::unlock,
 };
 use std::collections::HashMap;
 
@@ -47,7 +47,7 @@ fn two_member_vault() -> (AutoCommit, [u8; 32]) {
     members.insert("member-one-id".to_string(), m1);
     members.insert("member-two-id".to_string(), m2);
 
-    let state = EnviDocument {
+    let vault_doc = VaultDocument {
         id: WS_ID.to_string(),
         name: "Two Member Vault".to_string(),
         doc_version: 1,
@@ -58,7 +58,7 @@ fn two_member_vault() -> (AutoCommit, [u8; 32]) {
         compaction_date: None,
     };
     let mut doc = AutoCommit::new();
-    reconcile(&mut doc, &state).unwrap();
+    reconcile(&mut doc, &vault_doc).unwrap();
     (doc, dek)
 }
 
