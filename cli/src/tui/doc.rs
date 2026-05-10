@@ -8,7 +8,7 @@ use lib::{
     error::{Error, Result},
     members::{remove_member, rotate_dek},
     secrets::list_secrets,
-    store::Session,
+    vault_repo::Session,
     types::EnviDocument,
 };
 

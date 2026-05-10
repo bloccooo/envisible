@@ -22,7 +22,7 @@ use crossterm::{
 use lib::{
     error::{Error, Result},
     storage::StorageConfig,
-    store::{Session, Store},
+    vault_repo::{Session, VaultRepo},
     types::EnviDocument,
 };
 use ratatui::{backend::CrosstermBackend, Terminal};
@@ -38,7 +38,7 @@ use state::{FooterState, FooterStatus, State};
 
 pub async fn run(
     doc: AutoCommit,
-    store: Store,
+    repo: VaultRepo,
     session: Session,
     device_name: String,
     vault_name: String,
@@ -54,7 +54,7 @@ pub async fn run(
     let result = run_app(
         &mut terminal,
         doc,
-        store,
+        repo,
         session,
         device_name,
         vault_name,
@@ -75,13 +75,13 @@ pub async fn run(
 async fn run_app(
     terminal: &mut Terminal<CrosstermBackend<io::Stdout>>,
     mut doc: AutoCommit,
-    store: Store,
+    repo: VaultRepo,
     mut session: Session,
     device_name: String,
     vault_name: String,
     storage_config: StorageConfig,
 ) -> Result<()> {
-    let store = Arc::new(store);
+    let repo = Arc::new(repo);
     let vault_id = {
         let envi: EnviDocument = hydrate(&doc).map_err(|e| Error::Other(e.to_string()))?;
         envi.id.clone()
@@ -173,12 +173,12 @@ async fn run_app(
                             router.update(state.clone()).await;
 
                             let doc_bytes = doc.save();
-                            let store_clone = Arc::clone(&store);
+                            let repo_clone = Arc::clone(&repo);
                             let signing_key = session.signing_key.clone();
                             persist_task = Some(tokio::spawn(async move {
                                 match AutoCommit::load(&doc_bytes) {
                                     Ok(mut d) => {
-                                        store_clone.persist(&mut d, &signing_key).await.is_ok()
+                                        repo_clone.persist(&mut d, &signing_key).await.is_ok()
                                     }
                                     Err(_) => false,
                                 }
@@ -203,9 +203,9 @@ async fn run_app(
                             State::cloned(&state).with_footer_status(FooterStatus::Syncing),
                         );
                         router.update(state.clone()).await;
-                        let store_clone = Arc::clone(&store);
+                        let repo_clone = Arc::clone(&repo);
                         sync_task = Some(tokio::spawn(async move {
-                            store_clone.pull().await.ok().map(|mut d| d.save())
+                            repo_clone.pull().await.ok().map(|mut d| d.save())
                         }));
                     }
                 }
@@ -229,11 +229,11 @@ async fn run_app(
                     router.update(state.clone()).await;
 
                     let doc_bytes = doc.save();
-                    let store_clone = Arc::clone(&store);
+                    let repo_clone = Arc::clone(&repo);
                     let signing_key = session.signing_key.clone();
                     persist_task = Some(tokio::spawn(async move {
                         match AutoCommit::load(&doc_bytes) {
-                            Ok(mut d) => store_clone.persist(&mut d, &signing_key).await.is_ok(),
+                            Ok(mut d) => repo_clone.persist(&mut d, &signing_key).await.is_ok(),
                             Err(_) => false,
                         }
                     }));

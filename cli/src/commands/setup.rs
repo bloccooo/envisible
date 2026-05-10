@@ -12,7 +12,7 @@ use lib::{
     error::Result,
     invite::{parse_invite, verify_genesis_anchor},
     storage::StorageConfig,
-    store::Store,
+    vault_repo::VaultRepo,
     types::{EnviDocument, Member},
 };
 use std::time::Duration;
@@ -134,8 +134,8 @@ pub async fn run(invite_token_arg: Option<String>) -> Result<()> {
         // Pull each vault doc to get its name, then let user pick one
         let mut vault_options: Vec<(String, String)> = vec![]; // (id, name)
         for id in &vault_ids {
-            let store = Store::new(id, &config.member_id, &storage_config)?;
-            if let Ok(result) = store.pull().await {
+            let repo = VaultRepo::new(id, &config.member_id, &storage_config)?;
+            if let Ok(result) = repo.pull().await {
                 let doc = result;
                 let state: lib::types::EnviDocument = autosurgeon::hydrate(&doc)?;
                 let name = if state.name.is_empty() {
@@ -182,8 +182,8 @@ pub async fn run(invite_token_arg: Option<String>) -> Result<()> {
         );
         println!();
 
-        let store = Store::new(&vault_id, &config.member_id, &storage_config)?;
-        let mut doc = store.pull().await?;
+        let repo = VaultRepo::new(&vault_id, &config.member_id, &storage_config)?;
+        let mut doc = repo.pull().await?;
 
         println!(
             "  {} {}",
@@ -235,7 +235,7 @@ pub async fn run(invite_token_arg: Option<String>) -> Result<()> {
         reconcile(&mut doc, &state)?;
 
         let pb = spinner("Registering your keys…");
-        store.persist(&mut doc, &signing_key).await?;
+        repo.persist(&mut doc, &signing_key).await?;
         done(pb, "Registered");
 
         println!();
@@ -268,8 +268,8 @@ pub async fn run(invite_token_arg: Option<String>) -> Result<()> {
         let payload = parse_invite(&invite_token)?;
 
         let pb = spinner(&format!("Connecting to vault '{}'…", payload.vault.name));
-        let store = Store::new(&payload.vault.id, &config.member_id, &payload.storage)?;
-        let mut doc = store.pull().await?;
+        let repo = VaultRepo::new(&payload.vault.id, &config.member_id, &payload.storage)?;
+        let mut doc = repo.pull().await?;
         done(pb, "Connected");
 
         // Genesis trust anchor: verify the inviter's signing key in the fetched
@@ -354,7 +354,7 @@ pub async fn run(invite_token_arg: Option<String>) -> Result<()> {
         reconcile(&mut doc, &state)?;
 
         let pb = spinner("Registering your keys…");
-        store.persist(&mut doc, &signing_key).await?;
+        repo.persist(&mut doc, &signing_key).await?;
         done(pb, "Registered");
 
         println!();
@@ -392,7 +392,7 @@ pub async fn run(invite_token_arg: Option<String>) -> Result<()> {
         let storage_config = collect_storage_config()?;
         let vault_id = Uuid::now_v7().to_string();
 
-        let store = Store::new(&vault_id, &config.member_id, &storage_config)?;
+        let repo = VaultRepo::new(&vault_id, &config.member_id, &storage_config)?;
 
         config.vaults.push(VaultConfig {
             id: vault_id.clone(),
@@ -423,7 +423,7 @@ pub async fn run(invite_token_arg: Option<String>) -> Result<()> {
         println!();
 
         let pb = spinner("Initializing vault…");
-        let mut doc = store.pull().await?;
+        let mut doc = repo.pull().await?;
         done(pb, "Storage ready");
 
         let private_key = derive_private_key(&passphrase, &vault_id, &config.member_id)?;
@@ -459,7 +459,7 @@ pub async fn run(invite_token_arg: Option<String>) -> Result<()> {
         reconcile(&mut doc, &state)?;
 
         let pb = spinner("Encrypting and saving…");
-        store.persist(&mut doc, &signing_key).await?;
+        repo.persist(&mut doc, &signing_key).await?;
         done(pb, "Saved");
 
         println!();

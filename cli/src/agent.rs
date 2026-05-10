@@ -1,6 +1,6 @@
 use lib::{
     error::{Error, Result},
-    store::cache_dir,
+    vault_repo::cache_dir,
 };
 use rand::RngCore;
 use serde::{Deserialize, Serialize};

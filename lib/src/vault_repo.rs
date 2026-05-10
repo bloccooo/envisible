@@ -16,14 +16,14 @@ use tokio::time::{timeout, Duration};
 
 const REMOTE_TIMEOUT: Duration = Duration::from_secs(5);
 
-pub struct Store {
+pub struct VaultRepo {
     vault_id: String,
     member_id: String,
     remote: StorageBackend,
     local: StorageBackend,
 }
 
-impl Store {
+impl VaultRepo {
     pub fn new(vault_id: &str, member_id: &str, storage: &StorageConfig) -> Result<Self> {
         let remote = StorageBackend::new(storage)?;
 
@@ -408,14 +408,14 @@ mod tests {
             .await
             .unwrap();
 
-        let store = Store {
+        let repo = VaultRepo {
             vault_id: vault_id.to_string(),
             member_id: member_id.to_string(),
             remote: fs_backend(remote.path()),
             local: fs_backend(local.path()),
         };
 
-        let doc = store.pull().await.unwrap();
+        let doc = repo.pull().await.unwrap();
         let state: EnviDocument = hydrate(&doc).unwrap();
         assert_eq!(
             state.compaction_date,
@@ -451,14 +451,14 @@ mod tests {
         )
         .await;
 
-        let store = Store {
+        let repo = VaultRepo {
             vault_id: vault_id.to_string(),
             member_id: "m1".to_string(),
             remote: fs_backend(remote.path()),
             local: fs_backend(local.path()),
         };
 
-        let doc = store.pull().await.unwrap();
+        let doc = repo.pull().await.unwrap();
         let state: EnviDocument = hydrate(&doc).unwrap();
         // Both members' data should appear after merging the two compacted docs.
         assert!(state.members.contains_key("m1"));
@@ -489,14 +489,14 @@ mod tests {
         )
         .await;
 
-        let store = Store {
+        let repo = VaultRepo {
             vault_id: vault_id.to_string(),
             member_id: "m1".to_string(),
             remote: fs_backend(remote.path()),
             local: fs_backend(local.path()),
         };
 
-        let doc = store.pull().await.unwrap();
+        let doc = repo.pull().await.unwrap();
         let state: EnviDocument = hydrate(&doc).unwrap();
         // Only m1's compacted doc should be used; m2's is excluded.
         assert_eq!(state.compaction_date, Some(3000));
@@ -536,14 +536,14 @@ mod tests {
         )
         .await;
 
-        let store = Store {
+        let repo = VaultRepo {
             vault_id: vault_id.to_string(),
             member_id: "m1".to_string(),
             remote: fs_backend(remote.path()),
             local: fs_backend(local.path()),
         };
 
-        let doc = store.pull().await.unwrap();
+        let doc = repo.pull().await.unwrap();
         let state: EnviDocument = hydrate(&doc).unwrap();
         // Normal CRDT merge: both members should appear.
         assert!(state.members.contains_key("m1"));
@@ -600,14 +600,14 @@ mod tests {
 
         write_to_remote(&fs_backend(remote.path()), vault_id, member_id, old_bytes).await;
 
-        let store = Store {
+        let repo = VaultRepo {
             vault_id: vault_id.to_string(),
             member_id: member_id.to_string(),
             remote: fs_backend(remote.path()),
             local: fs_backend(local.path()),
         };
 
-        let doc = store.pull().await.unwrap();
+        let doc = repo.pull().await.unwrap();
         let state: EnviDocument = hydrate(&doc).unwrap();
         assert!(
             state.members.contains_key(member_id),

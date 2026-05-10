@@ -3,7 +3,7 @@ use lib::{
     config::read_config,
     crypto::derive_private_key,
     error::{Error, Result},
-    store::{unlock, Store},
+    vault_repo::{unlock, VaultRepo},
 };
 
 use crate::passphrase::prompt_passphrase;
@@ -28,7 +28,7 @@ pub async fn run() -> Result<()> {
         config.vaults.into_iter().nth(idx).unwrap()
     };
 
-    let store = Store::new(&vault.id, &config.member_id, &vault.storage)?;
+    let repo = VaultRepo::new(&vault.id, &config.member_id, &vault.storage)?;
 
     let spinner = ProgressBar::new_spinner();
     spinner.set_style(
@@ -39,7 +39,7 @@ pub async fn run() -> Result<()> {
     spinner.set_message("Syncing...");
     spinner.enable_steady_tick(std::time::Duration::from_millis(80));
 
-    let doc = store.pull().await?;
+    let doc = repo.pull().await?;
 
     spinner.finish_and_clear();
     let agent = crate::agent::AgentClient::connect_or_start();
@@ -59,7 +59,7 @@ pub async fn run() -> Result<()> {
 
     crate::tui::run(
         doc,
-        store,
+        repo,
         session,
         config.member_name,
         vault.name,

@@ -6,5 +6,5 @@ pub mod error;
 pub mod invite;
 pub mod secrets;
 pub mod storage;
-pub mod store;
+pub mod vault_repo;
 pub mod types;

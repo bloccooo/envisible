@@ -4,7 +4,7 @@ use lib::{
     envi_file::read_envi_file,
     error::{Error, Result},
     secrets::list_secrets,
-    store::{unlock, Store},
+    vault_repo::{unlock, VaultRepo},
     types::PlaintextSecret,
 };
 
@@ -65,8 +65,8 @@ pub async fn exec(
         config.vaults.into_iter().nth(idx).unwrap()
     };
 
-    let store = Store::new(&vault.id, &config.member_id, &vault.storage)?;
-    let doc = store.pull().await?;
+    let repo = VaultRepo::new(&vault.id, &config.member_id, &vault.storage)?;
+    let doc = repo.pull().await?;
     let agent = crate::agent::AgentClient::connect_or_start();
     let private_key = if let Some(ref agent) = agent {
         if let Some(key) = agent.get_key(&vault.id) {

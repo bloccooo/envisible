@@ -1,4 +1,4 @@
-use lib::{config::delete_config, error::Result, store::cache_dir};
+use lib::{config::delete_config, error::Result, vault_repo::cache_dir};
 
 pub async fn run() -> Result<()> {
     // Kill the agent if running
