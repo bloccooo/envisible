@@ -2,8 +2,9 @@ use indicatif::{ProgressBar, ProgressStyle};
 use lib::{
     config::read_config,
     crypto::derive_private_key,
+    crypto::unlock_document,
     error::{Error, Result},
-    vault_repo::{unlock, VaultRepo},
+    vault_repo::VaultRepo,
 };
 
 use crate::passphrase::prompt_passphrase;
@@ -52,7 +53,7 @@ pub async fn run() -> Result<()> {
     } else {
         derive_private_key(&prompt_passphrase()?, &vault.id, &config.member_id)?
     };
-    let session = unlock(&doc, &private_key)?;
+    let session = unlock_document(&doc, &private_key)?;
     if let Some(ref agent) = agent {
         agent.store_key(&vault.id, &private_key);
     }

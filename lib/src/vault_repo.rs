@@ -1,15 +1,11 @@
 use crate::{
-    crypto::{
-        canonical_document_bytes, derive_signing_key, get_public_key, sign_document, unwrap_dek,
-        verify_document_signature, verify_key_mac,
-    },
-    error::{Error, Result},
+    crypto::{canonical_document_bytes, sign_document, verify_document_signature},
+    error::Result,
     storage::{pull_prefix, push_path, StorageBackend, StorageConfig},
-    types::VaultDocument,
+    vault_document::VaultDocument,
 };
 use automerge::AutoCommit;
-use autosurgeon::{hydrate, reconcile};
-use base64::{engine::general_purpose::STANDARD as B64, Engine};
+use autosurgeon::reconcile;
 use directories::ProjectDirs;
 use std::path::PathBuf;
 use tokio::time::{timeout, Duration};
@@ -19,44 +15,61 @@ const REMOTE_TIMEOUT: Duration = Duration::from_secs(5);
 pub struct VaultRepo {
     vault_id: String,
     member_id: String,
-    remote: StorageBackend,
-    local: StorageBackend,
+    remote_storage: StorageBackend,
+    local_storage: StorageBackend,
 }
 
 impl VaultRepo {
     pub fn new(vault_id: &str, member_id: &str, storage: &StorageConfig) -> Result<Self> {
-        let remote = StorageBackend::new(storage)?;
+        let remote_storage = StorageBackend::new(storage)?;
 
         let cache_root = cache_dir();
         let local_config = crate::storage::StorageConfig::Fs(crate::storage::FsConfig {
             root: cache_root.to_string_lossy().into_owned(),
         });
-        let local = StorageBackend::new(&local_config)?;
+        let local_storage = StorageBackend::new(&local_config)?;
 
         Ok(Self {
             vault_id: vault_id.to_string(),
             member_id: member_id.to_string(),
-            remote,
-            local,
+            remote_storage,
+            local_storage,
         })
     }
 
-    pub async fn pull(&self) -> Result<AutoCommit> {
+    async fn pull_verified_documents(
+        &self,
+        storage: &StorageBackend,
+        max_timeout: Option<Duration>,
+    ) -> Result<Vec<AutoCommit>> {
         let prefix = pull_prefix(&self.vault_id);
 
-        let local_doc = self.load_local(&prefix).await;
-
-        let remote_docs: Vec<AutoCommit> =
-            match timeout(REMOTE_TIMEOUT, self.remote.pull(&prefix)).await {
-                Ok(Ok(files)) => verify_files(files),
+        let unverified_documents = match max_timeout {
+            Some(max_timeout) => match timeout(max_timeout, storage.pull(&prefix)).await {
+                Ok(Ok(documents)) => documents,
                 _ => vec![],
-            };
+            },
+            None => storage.pull(&prefix).await?,
+        };
+
+        Ok(verify_documents(unverified_documents))
+    }
+
+    pub async fn pull(&self) -> Result<AutoCommit> {
+        let local_documents = self
+            .pull_verified_documents(&self.local_storage, None)
+            .await?;
+        let local_document = merge_documents(local_documents);
+
+        let remote_documents = self
+            .pull_verified_documents(&self.remote_storage, Some(REMOTE_TIMEOUT))
+            .await?;
 
         // Hydrate each remote doc once, pair with its state, reuse for both passes.
-        let remote_docs_with_state: Vec<(AutoCommit, Option<VaultDocument>)> = remote_docs
+        let remote_docs_with_state: Vec<(AutoCommit, Option<VaultDocument>)> = remote_documents
             .into_iter()
             .map(|d| {
-                let s: Option<VaultDocument> = hydrate(&d).ok();
+                let s = VaultDocument::try_from(&d).ok();
                 (d, s)
             })
             .collect();
@@ -77,8 +90,8 @@ impl VaultRepo {
             .map(|(d, _)| d)
             .collect();
 
-        if let Some(local) = local_doc {
-            let s: Option<VaultDocument> = hydrate(&local).ok();
+        if let Some(local) = local_document {
+            let s = VaultDocument::try_from(&local).ok();
 
             if s.map(|s| s.compaction_date.unwrap_or(0) == max_remote_compaction_date)
                 .unwrap_or(false)
@@ -105,7 +118,7 @@ impl VaultRepo {
         signing_key: &ed25519_dalek::SigningKey,
     ) -> Result<()> {
         // Sign: compute canonical bytes, produce signature, store in document
-        let mut vault_doc: VaultDocument = hydrate(doc as &AutoCommit)?;
+        let mut vault_doc = VaultDocument::try_from(doc as &AutoCommit)?;
         let canonical = canonical_document_bytes(&vault_doc);
         vault_doc.document_signature = sign_document(&canonical, &self.member_id, signing_key);
         reconcile(doc, &vault_doc)?;
@@ -114,31 +127,22 @@ impl VaultRepo {
         let push = push_path(&self.vault_id, &self.member_id);
 
         // Always write to local cache
-        self.local.push(&push, data.clone()).await?;
+        self.local_storage.push(&push, data.clone()).await?;
 
         // Best-effort remote push with timeout
-        let _ = timeout(REMOTE_TIMEOUT, self.remote.push(&push, data)).await;
+        let _ = timeout(REMOTE_TIMEOUT, self.remote_storage.push(&push, data)).await;
 
         Ok(())
-    }
-
-    async fn load_local(&self, prefix: &str) -> Option<AutoCommit> {
-        let files = self.local.pull(prefix).await.ok()?;
-        let docs = verify_files(files);
-        docs.into_iter().reduce(|mut a, mut b| {
-            let _ = a.merge(&mut b);
-            a
-        })
     }
 }
 
 /// Verify signatures on each file and return the valid docs, skipping bad ones.
-fn verify_files(files: Vec<Vec<u8>>) -> Vec<AutoCommit> {
+fn verify_documents(files: Vec<Vec<u8>>) -> Vec<AutoCommit> {
     files
         .into_iter()
         .filter_map(|bytes| {
             let doc = AutoCommit::load(&bytes).ok()?;
-            let vault_doc: VaultDocument = hydrate(&doc).ok()?;
+            let vault_doc = VaultDocument::try_from(&doc).ok()?;
 
             if vault_doc.document_signature.is_empty() {
                 eprintln!("warning: skipping unsigned member file");
@@ -173,6 +177,13 @@ fn verify_files(files: Vec<Vec<u8>>) -> Vec<AutoCommit> {
         .collect()
 }
 
+fn merge_documents(documents: Vec<AutoCommit>) -> Option<AutoCommit> {
+    documents.into_iter().reduce(|mut a, mut b| {
+        let _ = a.merge(&mut b);
+        a
+    })
+}
+
 fn init_vault(vault_id: &str) -> AutoCommit {
     let mut doc = AutoCommit::new();
     let vault_doc = VaultDocument {
@@ -194,63 +205,13 @@ pub fn cache_dir() -> PathBuf {
         .unwrap_or_else(|| PathBuf::from(".envi-cache"))
 }
 
-// --- Session ---
-
-pub struct Session {
-    pub member_id: String,
-    pub dek: [u8; 32],
-    pub signing_key: ed25519_dalek::SigningKey,
-    /// X25519 private key seed — kept in session so the invite flow can re-derive
-    /// invite keypairs on demand without any local storage.
-    pub private_key: [u8; 32],
-}
-
-/// Unlock the document for the given private key.
-/// Verifies all member key MACs using the decrypted DEK.
-pub fn unlock(doc: &AutoCommit, private_key: &[u8; 32]) -> Result<Session> {
-    let vault_doc: VaultDocument = hydrate(doc)?;
-
-    let public_key = get_public_key(private_key);
-    let pub_key_b64 = B64.encode(public_key);
-
-    let member = vault_doc
-        .members
-        .values()
-        .find(|m| m.public_key == pub_key_b64)
-        .ok_or(Error::NotAMember)?;
-
-    if member.wrapped_dek.is_empty() {
-        return Err(Error::AccessPending);
-    }
-
-    let dek = unwrap_dek(&member.wrapped_dek, private_key)?;
-
-    // Verify key MACs for all members that have one
-    for m in vault_doc.members.values() {
-        if m.key_mac.is_empty() {
-            continue; // pending member or old client — skip
-        }
-        verify_key_mac(&dek, &m.id, &m.public_key, &m.signing_key, &m.key_mac)
-            .map_err(|_| Error::InvalidKeyMac(m.id.clone()))?;
-    }
-
-    let signing_key = derive_signing_key(private_key);
-
-    Ok(Session {
-        member_id: member.id.clone(),
-        dek,
-        signing_key,
-        private_key: *private_key,
-    })
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
     use crate::{
         crypto::{canonical_document_bytes, derive_signing_key, sign_document},
         storage::{push_path, FsConfig, StorageConfig},
-        types::{Member, VaultDocument},
+        vault_document::{Member, VaultDocument},
     };
     use autosurgeon::reconcile;
     use base64::{engine::general_purpose::STANDARD as B64, Engine};
@@ -336,7 +297,7 @@ mod tests {
     ) -> Vec<u8> {
         let sk = derive_signing_key(&test_private_key(signer_seed));
         let mut doc = AutoCommit::load(source_bytes).unwrap();
-        let mut vault_doc: VaultDocument = hydrate(&doc).unwrap();
+        let mut vault_doc = VaultDocument::try_from(&doc).unwrap();
         vault_doc.compaction_date = compaction_date;
         vault_doc.document_signature = String::new();
         let canonical = canonical_document_bytes(&vault_doc);
@@ -370,7 +331,7 @@ mod tests {
     fn compaction_date_none_treated_as_zero() {
         let bytes = make_doc_bytes("v1", "m1", 1, None);
         let doc = AutoCommit::load(&bytes).unwrap();
-        let vault_doc: VaultDocument = hydrate(&doc).unwrap();
+        let vault_doc = VaultDocument::try_from(&doc).unwrap();
         assert_eq!(vault_doc.compaction_date.unwrap_or(0), 0);
     }
 
@@ -378,7 +339,7 @@ mod tests {
     fn compaction_date_some_roundtrips() {
         let bytes = make_doc_bytes("v1", "m1", 1, Some(42_000));
         let doc = AutoCommit::load(&bytes).unwrap();
-        let vault_doc: VaultDocument = hydrate(&doc).unwrap();
+        let vault_doc = VaultDocument::try_from(&doc).unwrap();
         assert_eq!(vault_doc.compaction_date, Some(42_000));
     }
 
@@ -411,12 +372,12 @@ mod tests {
         let repo = VaultRepo {
             vault_id: vault_id.to_string(),
             member_id: member_id.to_string(),
-            remote: fs_backend(remote.path()),
-            local: fs_backend(local.path()),
+            remote_storage: fs_backend(remote.path()),
+            local_storage: fs_backend(local.path()),
         };
 
         let doc = repo.pull().await.unwrap();
-        let vault_doc: VaultDocument = hydrate(&doc).unwrap();
+        let vault_doc = VaultDocument::try_from(&doc).unwrap();
         assert_eq!(
             vault_doc.compaction_date,
             Some(1000),
@@ -454,12 +415,12 @@ mod tests {
         let repo = VaultRepo {
             vault_id: vault_id.to_string(),
             member_id: "m1".to_string(),
-            remote: fs_backend(remote.path()),
-            local: fs_backend(local.path()),
+            remote_storage: fs_backend(remote.path()),
+            local_storage: fs_backend(local.path()),
         };
 
         let doc = repo.pull().await.unwrap();
-        let vault_doc: VaultDocument = hydrate(&doc).unwrap();
+        let vault_doc = VaultDocument::try_from(&doc).unwrap();
         // Both members' data should appear after merging the two compacted docs.
         assert!(vault_doc.members.contains_key("m1"));
         assert!(vault_doc.members.contains_key("m2"));
@@ -492,12 +453,12 @@ mod tests {
         let repo = VaultRepo {
             vault_id: vault_id.to_string(),
             member_id: "m1".to_string(),
-            remote: fs_backend(remote.path()),
-            local: fs_backend(local.path()),
+            remote_storage: fs_backend(remote.path()),
+            local_storage: fs_backend(local.path()),
         };
 
         let doc = repo.pull().await.unwrap();
-        let vault_doc: VaultDocument = hydrate(&doc).unwrap();
+        let vault_doc = VaultDocument::try_from(&doc).unwrap();
         // Only m1's compacted doc should be used; m2's is excluded.
         assert_eq!(vault_doc.compaction_date, Some(3000));
         assert!(vault_doc.members.contains_key("m1"));
@@ -539,12 +500,12 @@ mod tests {
         let repo = VaultRepo {
             vault_id: vault_id.to_string(),
             member_id: "m1".to_string(),
-            remote: fs_backend(remote.path()),
-            local: fs_backend(local.path()),
+            remote_storage: fs_backend(remote.path()),
+            local_storage: fs_backend(local.path()),
         };
 
         let doc = repo.pull().await.unwrap();
-        let vault_doc: VaultDocument = hydrate(&doc).unwrap();
+        let vault_doc = VaultDocument::try_from(&doc).unwrap();
         // Normal CRDT merge: both members should appear.
         assert!(vault_doc.members.contains_key("m1"));
         assert!(vault_doc.members.contains_key("m2"));
@@ -573,7 +534,7 @@ mod tests {
             name: String,
             doc_version: u64,
             members: HashMap<String, Member>,
-            secrets: std::collections::HashMap<String, crate::types::Secret>,
+            secrets: std::collections::HashMap<String, crate::vault_document::Secret>,
             document_signature: String,
         }
         let sk = derive_signing_key(&test_private_key(seed));
@@ -590,7 +551,7 @@ mod tests {
         let mut doc = AutoCommit::new();
         reconcile(&mut doc, &old_state).unwrap();
         // Sign it (using the new canonical bytes which still exclude compaction_date)
-        let vault_doc: VaultDocument = hydrate(&doc).unwrap();
+        let vault_doc = VaultDocument::try_from(&doc).unwrap();
         let canonical = crate::crypto::canonical_document_bytes(&vault_doc);
         let sig = crate::crypto::sign_document(&canonical, member_id, &sk);
         let mut signed_state = vault_doc;
@@ -603,12 +564,12 @@ mod tests {
         let repo = VaultRepo {
             vault_id: vault_id.to_string(),
             member_id: member_id.to_string(),
-            remote: fs_backend(remote.path()),
-            local: fs_backend(local.path()),
+            remote_storage: fs_backend(remote.path()),
+            local_storage: fs_backend(local.path()),
         };
 
         let doc = repo.pull().await.unwrap();
-        let vault_doc: VaultDocument = hydrate(&doc).unwrap();
+        let vault_doc = VaultDocument::try_from(&doc).unwrap();
         assert!(
             vault_doc.members.contains_key(member_id),
             "old vault file should survive verify_files"
@@ -629,7 +590,7 @@ mod tests {
         // Build a doc with accumulated history.
         let mut doc = AutoCommit::load(&make_doc_bytes(vault_id, member_id, 1, None)).unwrap();
         for i in 0..100u64 {
-            let mut vault_doc: VaultDocument = hydrate(&doc).unwrap();
+            let mut vault_doc = VaultDocument::try_from(&doc).unwrap();
             vault_doc.doc_version = i;
             reconcile(&mut doc, &vault_doc).unwrap();
         }
@@ -637,7 +598,7 @@ mod tests {
 
         // Simulate Actions::Compact: reconcile current state into a fresh doc.
         let now = 99_999u64;
-        let mut vault_doc: VaultDocument = hydrate(&doc).unwrap();
+        let mut vault_doc = VaultDocument::try_from(&doc).unwrap();
         vault_doc.document_signature = String::new();
         vault_doc.compaction_date = Some(now);
 
@@ -650,7 +611,7 @@ mod tests {
             "compacted doc ({size_after} B) should be smaller than doc with 100 ops ({size_before} B)",
         );
 
-        let vault_doc: VaultDocument = hydrate(&fresh).unwrap();
+        let vault_doc = VaultDocument::try_from(&fresh).unwrap();
         assert_eq!(vault_doc.doc_version, 99);
         assert_eq!(vault_doc.compaction_date, Some(99_999));
         assert!(vault_doc.document_signature.is_empty());

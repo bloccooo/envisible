@@ -3,7 +3,7 @@ use lib::{
     config::VaultConfig,
     error::Error,
     storage::{FsConfig, StorageConfig},
-    types::PlaintextSecret,
+    vault_document::PlaintextSecret,
 };
 
 fn make_vault(name: &str) -> VaultConfig {

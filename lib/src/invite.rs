@@ -94,7 +94,7 @@ pub fn generate_invite(
 /// Skips silently if the token predates the signing key feature (no `inviter_signing_key`).
 pub fn verify_genesis_anchor(
     payload: &InvitePayload,
-    doc_members: &std::collections::HashMap<String, crate::types::Member>,
+    doc_members: &std::collections::HashMap<String, crate::vault_document::Member>,
 ) -> Result<()> {
     let (Some(expected_key), Some(inviter_id)) =
         (&payload.inviter_signing_key, &payload.inviter_id)

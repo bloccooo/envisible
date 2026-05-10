@@ -8,7 +8,7 @@ use lib::{
         compute_key_mac, derive_private_key, derive_signing_key, generate_dek, get_public_key,
         wrap_dek,
     },
-    types::{Member, VaultDocument},
+    vault_document::{Member, VaultDocument},
 };
 use std::collections::HashMap;
 

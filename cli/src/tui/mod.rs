@@ -19,11 +19,12 @@ use crossterm::{
     execute,
     terminal::{disable_raw_mode, enable_raw_mode, EnterAlternateScreen, LeaveAlternateScreen},
 };
-use lib::types::VaultDocument;
+use lib::vault_document::VaultDocument;
 use lib::{
     error::{Error, Result},
     storage::StorageConfig,
-    vault_repo::{Session, VaultRepo},
+    crypto::Session,
+    vault_repo::VaultRepo,
 };
 use ratatui::{backend::CrosstermBackend, Terminal};
 use tokio::sync::mpsc;

@@ -1,4 +1,6 @@
-use autosurgeon::{Hydrate, Reconcile};
+use crate::error::{Error, Result};
+use automerge::AutoCommit;
+use autosurgeon::{hydrate, Hydrate, Reconcile};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 
@@ -21,6 +23,14 @@ pub struct VaultDocument {
     /// key is absent from old documents, preserving backwards compatibility.
     #[autosurgeon(missing = "Default::default")]
     pub compaction_date: Option<u64>,
+}
+
+impl TryFrom<&AutoCommit> for VaultDocument {
+    type Error = Error;
+
+    fn try_from(document: &AutoCommit) -> Result<Self> {
+        hydrate(document).map_err(|e| Error::Other(e.to_string()))
+    }
 }
 
 #[derive(Debug, Clone, Reconcile, Hydrate, Default)]

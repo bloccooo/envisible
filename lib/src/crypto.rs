@@ -1,10 +1,11 @@
 use crate::error::{Error, Result};
-use crate::types::VaultDocument;
+use crate::vault_document::VaultDocument;
 use aes_gcm::{
     aead::{Aead, KeyInit},
     Aes256Gcm, Key, Nonce,
 };
 use argon2::{Algorithm, Argon2, Params, Version};
+use automerge::AutoCommit;
 use base64::{engine::general_purpose::STANDARD as B64, Engine};
 use ed25519_dalek::{Signer, Verifier};
 use hkdf::Hkdf;
@@ -401,4 +402,54 @@ pub fn canonical_document_bytes(vault_doc: &VaultDocument) -> Vec<u8> {
     };
 
     serde_json::to_vec(&doc).expect("canonical serialization never fails")
+}
+
+// --- Session ---
+
+pub struct Session {
+    pub member_id: String,
+    pub dek: [u8; 32],
+    pub signing_key: ed25519_dalek::SigningKey,
+    /// X25519 private key seed — kept in session so the invite flow can re-derive
+    /// invite keypairs on demand without any local storage.
+    pub private_key: [u8; 32],
+}
+
+/// Unlock the document for the given private key.
+/// Verifies all member key MACs using the decrypted DEK.
+pub fn unlock_document(doc: &AutoCommit, private_key: &[u8; 32]) -> Result<Session> {
+    let vault_doc = VaultDocument::try_from(doc)?;
+
+    let public_key = get_public_key(private_key);
+    let pub_key_b64 = B64.encode(public_key);
+
+    let member = vault_doc
+        .members
+        .values()
+        .find(|m| m.public_key == pub_key_b64)
+        .ok_or(Error::NotAMember)?;
+
+    if member.wrapped_dek.is_empty() {
+        return Err(Error::AccessPending);
+    }
+
+    let dek = unwrap_dek(&member.wrapped_dek, private_key)?;
+
+    // Verify key MACs for all members that have one
+    for m in vault_doc.members.values() {
+        if m.key_mac.is_empty() {
+            continue; // pending member or old client — skip
+        }
+        verify_key_mac(&dek, &m.id, &m.public_key, &m.signing_key, &m.key_mac)
+            .map_err(|_| Error::InvalidKeyMac(m.id.clone()))?;
+    }
+
+    let signing_key = derive_signing_key(private_key);
+
+    Ok(Session {
+        member_id: member.id.clone(),
+        dek,
+        signing_key,
+        private_key: *private_key,
+    })
 }

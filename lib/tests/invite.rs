@@ -5,7 +5,7 @@ use lib::{
     crypto::{derive_invite_key, derive_private_key, derive_signing_key, get_public_key},
     invite::{generate_invite, parse_invite, verify_genesis_anchor, VaultPayload},
     storage::{FsConfig, StorageConfig},
-    types::Member,
+    vault_document::Member,
 };
 use std::collections::HashMap;
 

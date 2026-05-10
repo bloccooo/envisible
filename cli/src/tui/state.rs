@@ -13,7 +13,7 @@ pub struct Secret {
     pub tags: Vec<String>,
 }
 
-/// Mirrors lib::types::Member but with plaintext fields — lossless representation of the doc.
+/// Mirrors lib::vault_document::Member but with plaintext fields — lossless representation of the doc.
 #[derive(Debug, Clone, PartialEq)]
 pub struct Member {
     pub id: String,

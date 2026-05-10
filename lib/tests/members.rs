@@ -10,7 +10,7 @@ use lib::{
     },
     members::{remove_member, rotate_dek},
     secrets::{add_secret, list_secrets, PlaintextSecretFields},
-    types::{Member, VaultDocument},
+    vault_document::{Member, VaultDocument},
     vault_repo::unlock,
 };
 use std::collections::HashMap;

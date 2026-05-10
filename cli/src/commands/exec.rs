@@ -1,11 +1,12 @@
 use lib::{
     config::{read_config, VaultConfig},
     crypto::derive_private_key,
+    crypto::unlock_document,
     envi_file::read_envi_file,
     error::{Error, Result},
     secrets::list_secrets,
-    vault_repo::{unlock, VaultRepo},
-    types::PlaintextSecret,
+    vault_document::PlaintextSecret,
+    vault_repo::VaultRepo,
 };
 
 use crate::passphrase::prompt_passphrase;
@@ -77,7 +78,7 @@ pub async fn exec(
     } else {
         derive_private_key(&prompt_passphrase()?, &vault.id, &config.member_id)?
     };
-    let session = unlock(&doc, &private_key)?;
+    let session = unlock_document(&doc, &private_key)?;
     if let Some(ref agent) = agent {
         agent.store_key(&vault.id, &private_key);
     }
@@ -92,7 +93,12 @@ pub async fn exec(
     if dry_run {
         let label = tag_filter
             .as_deref()
-            .map(|t| format!("tags \"{}\"", t.split(',').map(str::trim).collect::<Vec<_>>().join(", ")))
+            .map(|t| {
+                format!(
+                    "tags \"{}\"",
+                    t.split(',').map(str::trim).collect::<Vec<_>>().join(", ")
+                )
+            })
             .unwrap_or_else(|| "all secrets".to_string());
         println!("\nEnv vars that would be injected ({label}):\n");
         for (k, v) in &env_vars {

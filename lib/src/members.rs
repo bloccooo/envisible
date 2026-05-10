@@ -1,7 +1,7 @@
 use crate::{
     crypto::{compute_key_mac, decrypt_field, encrypt_field, generate_dek, wrap_dek},
     error::{Error, Result},
-    types::VaultDocument,
+    vault_document::VaultDocument,
 };
 use automerge::AutoCommit;
 use autosurgeon::{hydrate, reconcile};

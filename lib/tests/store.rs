@@ -4,7 +4,7 @@ use autosurgeon::reconcile;
 use base64::{engine::general_purpose::STANDARD as B64, Engine};
 use lib::{
     crypto::{derive_private_key, get_public_key, wrap_dek},
-    types::{Member, VaultDocument},
+    vault_document::{Member, VaultDocument},
     vault_repo::unlock,
 };
 use std::collections::HashMap;

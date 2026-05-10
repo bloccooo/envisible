@@ -12,7 +12,7 @@ use lib::{
     error::Result,
     invite::{parse_invite, verify_genesis_anchor},
     storage::StorageConfig,
-    types::{Member, VaultDocument},
+    vault_document::{Member, VaultDocument},
     vault_repo::VaultRepo,
 };
 use std::time::Duration;
@@ -221,7 +221,7 @@ pub async fn run(invite_token_arg: Option<String>) -> Result<()> {
         let mut vault_doc: VaultDocument = autosurgeon::hydrate(&doc)?;
         vault_doc.members.insert(
             config.member_id.clone(),
-            lib::types::Member {
+            lib::vault_document::Member {
                 id: config.member_id.clone(),
                 email: config.member_name.clone(),
                 public_key: public_key_b64,

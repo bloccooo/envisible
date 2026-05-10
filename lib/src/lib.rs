@@ -7,4 +7,4 @@ pub mod invite;
 pub mod secrets;
 pub mod storage;
 pub mod vault_repo;
-pub mod types;
+pub mod vault_document;

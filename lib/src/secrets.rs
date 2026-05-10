@@ -1,7 +1,7 @@
 use crate::{
     crypto::{decrypt_field, encrypt_field},
     error::Result,
-    types::{PlaintextSecret, Secret, VaultDocument},
+    vault_document::{PlaintextSecret, Secret, VaultDocument},
 };
 use automerge::AutoCommit;
 use autosurgeon::{hydrate, reconcile};

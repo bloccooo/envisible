@@ -7,7 +7,7 @@ use lib::{
         derive_signing_key, encrypt_field, generate_dek, get_public_key, sign_document, unwrap_dek,
         verify_document_signature, verify_key_mac, wrap_dek,
     },
-    types::{VaultDocument, Member},
+    vault_document::{VaultDocument, Member},
 };
 use std::collections::HashMap;
 

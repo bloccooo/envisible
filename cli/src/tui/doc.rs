@@ -4,12 +4,11 @@ use automerge::AutoCommit;
 use autosurgeon::{hydrate, reconcile};
 use base64::{engine::general_purpose::STANDARD as B64, Engine};
 use lib::{
-    crypto::{compute_key_mac, derive_invite_key, encrypt_field, verify_invite_mac, wrap_dek},
+    crypto::{compute_key_mac, derive_invite_key, encrypt_field, verify_invite_mac, wrap_dek, Session},
     error::{Error, Result},
     members::{remove_member, rotate_dek},
     secrets::list_secrets,
-    types::VaultDocument,
-    vault_repo::Session,
+    vault_document::VaultDocument,
 };
 
 use super::state::{Member, Secret, State};
@@ -146,7 +145,7 @@ pub fn state_to_envi_doc(
                 // New secret — encrypt all fields
                 vault_doc.secrets.insert(
                     secret.id.clone(),
-                    lib::types::Secret {
+                    lib::vault_document::Secret {
                         id: secret.id.clone(),
                         name: encrypt_field(&secret.name, dek)?,
                         value: encrypt_field(&secret.value, dek)?,
@@ -184,7 +183,7 @@ pub fn state_to_envi_doc(
         } else {
             vault_doc.members.insert(
                 member.id.clone(),
-                lib::types::Member {
+                lib::vault_document::Member {
                     id: member.id.clone(),
                     email: member.email.clone(),
                     public_key: member.public_key.clone(),
