@@ -3,23 +3,22 @@ mod common;
 use autosurgeon::reconcile;
 use base64::{engine::general_purpose::STANDARD as B64, Engine};
 use lib::{
-    crypto::{derive_private_key, get_public_key, wrap_dek},
+    crypto::{derive_private_key, get_public_key, unlock_document, wrap_dek},
     vault_document::{Member, VaultDocument},
-    vault_repo::unlock,
 };
 use std::collections::HashMap;
 
 #[test]
 fn unlock_with_valid_key_succeeds() {
     let ws = common::setup();
-    let session = unlock(&ws.doc, &ws.private_key).unwrap();
+    let session = unlock_document(&ws.doc, &ws.private_key).unwrap();
     assert_eq!(session.member_id, ws.member_id);
 }
 
 #[test]
 fn unlock_returns_correct_dek() {
     let ws = common::setup();
-    let session = unlock(&ws.doc, &ws.private_key).unwrap();
+    let session = unlock_document(&ws.doc, &ws.private_key).unwrap();
     assert_eq!(session.dek, ws.dek);
 }
 
@@ -28,7 +27,7 @@ fn unlock_with_wrong_passphrase_returns_not_a_member() {
     let ws = common::setup();
     let wrong_key =
         derive_private_key("wrong-passphrase", common::VAULT_ID, common::MEMBER_ID).unwrap();
-    let err = unlock(&ws.doc, &wrong_key)
+    let err = unlock_document(&ws.doc, &wrong_key)
         .err()
         .expect("should return an error");
     assert!(matches!(err, lib::error::Error::NotAMember));
@@ -39,7 +38,7 @@ fn unlock_with_wrong_member_id_returns_not_a_member() {
     let ws = common::setup();
     let wrong_key =
         derive_private_key(common::PASSPHRASE, common::VAULT_ID, "other-member-id").unwrap();
-    let err = unlock(&ws.doc, &wrong_key)
+    let err = unlock_document(&ws.doc, &wrong_key)
         .err()
         .expect("should return an error");
     assert!(matches!(err, lib::error::Error::NotAMember));
@@ -81,7 +80,7 @@ fn unlock_pending_member_returns_access_pending() {
     let mut doc = AutoCommit::new();
     reconcile(&mut doc, &vault_doc).unwrap();
 
-    let err = unlock(&doc, &private_key)
+    let err = unlock_document(&doc, &private_key)
         .err()
         .expect("should return an error");
     assert!(matches!(err, lib::error::Error::AccessPending));
@@ -153,7 +152,7 @@ fn unlock_detects_tampered_key_mac() {
     let mut doc = AutoCommit::new();
     reconcile(&mut doc, &vault_doc).unwrap();
 
-    let err = unlock(&doc, &private_key)
+    let err = unlock_document(&doc, &private_key)
         .err()
         .expect("should return an error");
     assert!(matches!(err, lib::error::Error::InvalidKeyMac(_)));
