@@ -417,7 +417,12 @@ impl Component for HomePage {
             },
             KeyCode::Char('e') => match self.focus {
                 Focus::Secrets => {
-                    if let Some(sec) = self.state.filtered_secrets().get(self.secrets.sec_idx).copied() {
+                    if let Some(sec) = self
+                        .state
+                        .filtered_secrets()
+                        .get(self.secrets.sec_idx)
+                        .copied()
+                    {
                         let _ = self
                             .actions_tx
                             .send(Actions::NavigateTo(Route::EditSecret(sec.id.clone())))
@@ -437,7 +442,12 @@ impl Component for HomePage {
             },
             KeyCode::Char('d') => match self.focus {
                 Focus::Secrets => {
-                    if let Some(sec) = self.state.filtered_secrets().get(self.secrets.sec_idx).copied() {
+                    if let Some(sec) = self
+                        .state
+                        .filtered_secrets()
+                        .get(self.secrets.sec_idx)
+                        .copied()
+                    {
                         let msg = format!("Delete secret '{}'? [y] Yes  [n] No", sec.name);
                         self.secret_to_delete = Some(sec.id.clone());
                         self.send_warning(msg).await;
@@ -463,7 +473,12 @@ impl Component for HomePage {
             },
             KeyCode::Char('c') => {
                 if self.focus == Focus::Secrets {
-                    if let Some(sec) = self.state.filtered_secrets().get(self.secrets.sec_idx).copied() {
+                    if let Some(sec) = self
+                        .state
+                        .filtered_secrets()
+                        .get(self.secrets.sec_idx)
+                        .copied()
+                    {
                         let value = sec.value.clone();
                         if let Some(cb) = &mut self.clipboard {
                             let _ = cb.set_text(value);
@@ -500,6 +515,8 @@ impl Component for HomePage {
                     } else {
                         return EventResult::Consumed;
                     };
+                    self.set_focus(Focus::Secrets);
+                    self.send_hint(self.normal_hint()).await;
                     let _ = self
                         .actions_tx
                         .send(Actions::SetState(Arc::new(new_state)))
@@ -539,10 +556,8 @@ impl Component for HomePage {
             }
             KeyCode::Char('X') => {
                 self.confirming_compact = true;
-                self.send_warning(
-                    "Compact vault? Strips history from your file. [y] Yes  [n] No",
-                )
-                .await;
+                self.send_warning("Compact vault? Strips history from your file. [y] Yes  [n] No")
+                    .await;
             }
             _ => return EventResult::Ignored,
         }
