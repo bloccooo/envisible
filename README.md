@@ -107,6 +107,23 @@ tag = "myapp"
 vault = "myvault"
 ```
 
+#### Command argument templates
+
+Some tools require secrets as file paths or inlined into arguments rather than environment variables. Use `{NAME}` to substitute a secret's value directly into a command argument, or `{NAME_AS_FILE_PATH}` to write the value to a temporary file and substitute its path:
+
+```sh
+# Inline value substitution — inserts the secret value directly into the arg
+envi exec -- curl -H 'Authorization: Bearer {API_TOKEN}' {API_URL}/users
+
+# File path substitution — writes the secret to a temp file, substitutes the path
+envi exec -- ssh -i {SSH_KEY_AS_FILE_PATH} user@host
+
+# Inline env var assignment — sets KUBECONFIG to the kubeconfig file path for kubectl
+envi exec -- KUBECONFIG={KUBECONFIG_AS_FILE_PATH} kubectl get nodes
+```
+
+Template tokens are not shell syntax, so they pass through the shell unexpanded and are resolved by `envi` itself before the command runs. File-backed secrets are written to a temporary directory with `0600` permissions and deleted automatically when the command exits. The `--tag` filter applies to template lookups the same way it does to environment variable injection.
+
 ### `envi force-sync`
 
 Pull the latest state from the storage backend and push local changes.
