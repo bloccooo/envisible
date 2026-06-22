@@ -173,7 +173,11 @@ impl StorageBackend {
                 // Expect paths like `_envi/{vault_id}/`
                 let inner = path.strip_prefix(STORAGE_PREFIX)?;
                 let id = inner.trim_end_matches('/');
-                if id.is_empty() { None } else { Some(id.to_string()) }
+                if id.is_empty() {
+                    None
+                } else {
+                    Some(id.to_string())
+                }
             })
             .collect();
 

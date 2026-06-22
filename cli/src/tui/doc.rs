@@ -4,7 +4,9 @@ use automerge::AutoCommit;
 use autosurgeon::{hydrate, reconcile};
 use base64::{engine::general_purpose::STANDARD as B64, Engine};
 use lib::{
-    crypto::{compute_key_mac, derive_invite_key, encrypt_field, verify_invite_mac, wrap_dek, Session},
+    crypto::{
+        compute_key_mac, derive_invite_key, encrypt_field, verify_invite_mac, wrap_dek, Session,
+    },
     error::{Error, Result},
     members::{remove_member, rotate_dek},
     secrets::list_secrets,
