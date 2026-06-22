@@ -133,7 +133,7 @@ impl TextAreaComponent {
         TextAreaEvent::Changed
     }
 
-    pub fn render_area(&self, frame: &mut Frame, area: Rect, _title: &str) {
+    pub fn render_area(&self, frame: &mut Frame, area: Rect, show_cursor: bool) {
         // Reserve the last row for scroll indicators; content gets the rest.
         let content_height = area.height.saturating_sub(1);
         let viewport = content_height as usize;
@@ -142,14 +142,17 @@ impl TextAreaComponent {
         let can_down = self.scroll + viewport < self.lines.len();
 
         // Content lines.
-        let content_area = Rect { height: content_height, ..area };
+        let content_area = Rect {
+            height: content_height,
+            ..area
+        };
         let visible: Vec<Line> = (self.scroll..self.scroll + viewport)
             .map(|r| {
                 if r >= self.lines.len() {
                     return Line::from("");
                 }
                 let text = &self.lines[r];
-                if r != self.row {
+                if r != self.row || !show_cursor {
                     return Line::from(text.clone());
                 }
                 let before: String = text.chars().take(self.col).collect();
