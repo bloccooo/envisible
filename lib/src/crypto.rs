@@ -252,7 +252,7 @@ pub fn compute_invite_mac(
 ) -> Result<String> {
     let shared = invite_ecdh_shared(my_private, their_public)?;
     let mut mac =
-        <HmacSha256 as hmac::Mac>::new_from_slice(&shared).expect("HMAC accepts any key size");
+        <HmacSha256 as hmac::KeyInit>::new_from_slice(&shared).expect("HMAC accepts any key size");
     mac.update(member_id.as_bytes());
     mac.update(b":");
     mac.update(public_key_b64.as_bytes());
@@ -295,7 +295,7 @@ pub fn compute_key_mac(
     signing_key_b64: &str,
 ) -> String {
     let mut mac =
-        <HmacSha256 as hmac::Mac>::new_from_slice(dek).expect("HMAC accepts any key size");
+        <HmacSha256 as hmac::KeyInit>::new_from_slice(dek).expect("HMAC accepts any key size");
     mac.update(member_id.as_bytes());
     mac.update(b":");
     mac.update(public_key_b64.as_bytes());
