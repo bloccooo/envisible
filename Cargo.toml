@@ -3,7 +3,7 @@ members = ["lib", "cli"]
 resolver = "2"
 
 [workspace.package]
-version = "0.1.5"
+version = "0.1.6"
 
 [workspace.dependencies]
 tokio = { version = "1", features = ["rt-multi-thread", "macros", "time", "fs"] }
@@ -13,7 +13,7 @@ thiserror = "1"
 base64 = "0.22"
 automerge = "0.10"
 autosurgeon = "0.12"
-rand = "0.8"
+rand = "0.8.6"
 
 [profile.release]
 opt-level    = "z"   # optimize for size
