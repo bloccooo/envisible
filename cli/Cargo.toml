@@ -21,7 +21,7 @@ thiserror = { workspace = true }
 automerge = { workspace = true }
 autosurgeon = { workspace = true }
 
-rand = "0.10"
+rand = { workspace = true }
 libc = "0.2"
 clap = { version = "4", features = ["derive"] }
 ratatui = "0.30"
