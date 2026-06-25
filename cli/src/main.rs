@@ -29,7 +29,7 @@ enum Command {
         #[arg(long)]
         dry_run: bool,
         /// Substitute {NAME} and {NAME_AS_FILE_PATH} tokens in command arguments
-        #[arg(short, long)]
+        #[arg(short = 'T', long)]
         template: bool,
         /// Command to run
         #[arg(last = true)]

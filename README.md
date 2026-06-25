@@ -113,13 +113,13 @@ Some tools require secrets as file paths or inlined into arguments rather than e
 
 ```sh
 # Inline value substitution — inserts the secret value directly into the arg
-envi exec -t -- curl -H 'Authorization: Bearer {API_TOKEN}' {API_URL}/users
+envi exec -T -- curl -H 'Authorization: Bearer {API_TOKEN}' {API_URL}/users
 
 # File path substitution — writes the secret to a temp file, substitutes the path
-envi exec -t -- ssh -i {SSH_KEY_AS_FILE_PATH} user@host
+envi exec -T -- ssh -i {SSH_KEY_AS_FILE_PATH} user@host
 
 # Inline env var assignment — sets KUBECONFIG to the kubeconfig file path for kubectl
-envi exec -t -- KUBECONFIG={KUBECONFIG_AS_FILE_PATH} kubectl get nodes
+envi exec -T -- KUBECONFIG={KUBECONFIG_AS_FILE_PATH} kubectl get nodes
 ```
 
 Without `-t`, curly-brace tokens are passed through to the subprocess unchanged — useful when the command itself uses `{...}` syntax (e.g. kubectl jsonpath). With `-t`, if a token has no matching secret, `envi` prints a warning and leaves the token as-is rather than failing.
