@@ -116,6 +116,7 @@ pub async fn exec(
     tag_arg: Option<String>,
     vault_arg: Option<String>,
     dry_run: bool,
+    template: bool,
     cmd: Vec<String>,
 ) -> Result<()> {
     let envi = read_envi_file(".").await?;
@@ -167,7 +168,11 @@ pub async fn exec(
     let all_secrets = list_secrets(&doc, &session.dek)?;
     let filtered = filter_by_tag(all_secrets, tag_filter.as_deref());
 
-    let (file_names, value_names) = collect_templates(&cmd);
+    let (file_names, value_names) = if template {
+        collect_templates(&cmd)
+    } else {
+        (Vec::new(), Vec::new())
+    };
 
     // Build file path map: write each secret's value to a temp file
     let mut template_paths: HashMap<String, String> = HashMap::new();
@@ -181,10 +186,12 @@ pub async fn exec(
         };
 
         for name in &file_names {
-            let secret = filtered
-                .iter()
-                .find(|s| s.name == *name)
-                .ok_or_else(|| Error::Other(format!("secret \"{name}\" not found")))?;
+            let Some(secret) = filtered.iter().find(|s| s.name == *name) else {
+                eprintln!(
+                    "warning: no secret named \"{name}\" — leaving {{{name}_AS_FILE_PATH}} as-is"
+                );
+                continue;
+            };
 
             let path = match &dir {
                 Some(d) => {
@@ -214,10 +221,10 @@ pub async fn exec(
     // Build inline value map: resolve {NAME} tokens directly from secrets
     let mut template_values: HashMap<String, String> = HashMap::new();
     for name in &value_names {
-        let secret = filtered
-            .iter()
-            .find(|s| s.name == *name)
-            .ok_or_else(|| Error::Other(format!("secret \"{name}\" not found")))?;
+        let Some(secret) = filtered.iter().find(|s| s.name == *name) else {
+            eprintln!("warning: no secret named \"{name}\" — leaving {{{name}}} as-is");
+            continue;
+        };
         template_values.insert(name.clone(), secret.value.clone());
     }
 
