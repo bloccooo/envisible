@@ -1,5 +1,5 @@
-use envi::{agent, commands};
 use clap::{Parser, Subcommand};
+use envi::{agent, commands};
 
 #[derive(Parser)]
 #[command(name = "envi", about = "Encrypted team secret manager", version)]
@@ -28,6 +28,9 @@ enum Command {
         /// Print env vars that would be injected without running
         #[arg(long)]
         dry_run: bool,
+        /// Substitute {NAME} and {NAME_AS_FILE_PATH} tokens in command arguments
+        #[arg(short, long)]
+        template: bool,
         /// Command to run
         #[arg(last = true)]
         cmd: Vec<String>,
@@ -61,8 +64,9 @@ async fn main() {
             tag,
             vault,
             dry_run,
+            template,
             cmd,
-        } => commands::exec::exec(tag, vault, dry_run, cmd).await,
+        } => commands::exec::exec(tag, vault, dry_run, template, cmd).await,
         Command::ForceSync => commands::sync::run().await,
         Command::Logout => agent::run(false, true).await,
         Command::Wipe => commands::clear::run().await,
