@@ -109,7 +109,7 @@ vault = "myvault"
 
 #### Command argument templates
 
-Some tools require secrets as file paths or inlined into arguments rather than environment variables. Pass `-t` (`--template`) to enable substitution of `{NAME}` and `{NAME_AS_FILE_PATH}` tokens in command arguments:
+Some tools require secrets as file paths or inlined into arguments rather than environment variables. Pass `-T` (`--template`) to enable substitution of `{NAME}` and `{NAME_AS_FILE_PATH}` tokens in command arguments:
 
 ```sh
 # Inline value substitution — inserts the secret value directly into the arg
@@ -122,7 +122,7 @@ envi exec -T -- ssh -i {SSH_KEY_AS_FILE_PATH} user@host
 envi exec -T -- KUBECONFIG={KUBECONFIG_AS_FILE_PATH} kubectl get nodes
 ```
 
-Without `-t`, curly-brace tokens are passed through to the subprocess unchanged — useful when the command itself uses `{...}` syntax (e.g. kubectl jsonpath). With `-t`, if a token has no matching secret, `envi` prints a warning and leaves the token as-is rather than failing.
+Without `-T`, curly-brace tokens are passed through to the subprocess unchanged — useful when the command itself uses `{...}` syntax (e.g. kubectl jsonpath). With `-T`, if a token has no matching secret, `envi` prints a warning and leaves the token as-is rather than failing.
 
 Template tokens are not shell syntax, so they pass through the shell unexpanded and are resolved by `envi` itself before the command runs. File-backed secrets are written to a temporary directory with `0600` permissions and deleted automatically when the command exits. The `--tag` filter applies to template lookups the same way it does to environment variable injection.
 
