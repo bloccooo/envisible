@@ -26,9 +26,9 @@ case "$OS" in
     ;;
 esac
 
-# Resolve latest release tag
+# Resolve latest release tag via redirect (avoids api.github.com rate limits)
 echo "Fetching latest release..."
-TAG="$(curl -fsSL "https://api.github.com/repos/$REPO/releases/latest" | grep '"tag_name"' | sed 's/.*"tag_name": *"\([^"]*\)".*/\1/')"
+TAG="$(curl -fsSL -o /dev/null -w '%{url_effective}' "https://github.com/$REPO/releases/latest" | sed 's#.*/tag/##')"
 
 if [ -z "$TAG" ]; then
   echo "Could not determine latest release tag."
