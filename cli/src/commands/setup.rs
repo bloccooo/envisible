@@ -136,7 +136,7 @@ pub async fn run(invite_token_arg: Option<String>) -> Result<()> {
         for id in &vault_ids {
             let repo = VaultRepo::new(id, &config.member_id, &storage_config)?;
             if let Ok(result) = repo.pull().await {
-                let doc = result;
+                let doc = result.doc;
                 let vault_doc: VaultDocument = autosurgeon::hydrate(&doc)?;
                 let name = if vault_doc.name.is_empty() {
                     id.clone()
@@ -183,7 +183,7 @@ pub async fn run(invite_token_arg: Option<String>) -> Result<()> {
         println!();
 
         let repo = VaultRepo::new(&vault_id, &config.member_id, &storage_config)?;
-        let mut doc = repo.pull().await?;
+        let mut doc = repo.pull().await?.doc;
 
         println!(
             "  {} {}",
@@ -269,7 +269,7 @@ pub async fn run(invite_token_arg: Option<String>) -> Result<()> {
 
         let pb = spinner(&format!("Connecting to vault '{}'…", payload.vault.name));
         let repo = VaultRepo::new(&payload.vault.id, &config.member_id, &payload.storage)?;
-        let mut doc = repo.pull().await?;
+        let mut doc = repo.pull().await?.doc;
         done(pb, "Connected");
 
         // Genesis trust anchor: verify the inviter's signing key in the fetched
@@ -423,7 +423,7 @@ pub async fn run(invite_token_arg: Option<String>) -> Result<()> {
         println!();
 
         let pb = spinner("Initializing vault…");
-        let mut doc = repo.pull().await?;
+        let mut doc = repo.pull().await?.doc;
         done(pb, "Storage ready");
 
         let private_key = derive_private_key(&passphrase, &vault_id, &config.member_id)?;

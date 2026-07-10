@@ -4,6 +4,7 @@ pub mod crypto;
 pub mod envi_file;
 pub mod error;
 pub mod invite;
+pub mod log;
 pub mod secrets;
 pub mod storage;
 pub mod vault_repo;

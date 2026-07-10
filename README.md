@@ -28,6 +28,8 @@ Before merging, each file is verified: it must carry a valid Ed25519 signature p
 
 Because every member writes only their own file, there are no write conflicts and no need for locking or coordination. Two members editing secrets at the same time will each push their own file; the next sync for any member will merge both into one consistent view.
 
+If the storage backend can't be reached (network outage, timeout, or a storage error), `envi` falls back to the local cache instead of treating the vault as empty. The terminal UI shows a `⚠ OFFLINE — showing cached data` badge in the header whenever the most recent sync couldn't reach the backend, so it's always clear when you might be looking at stale data.
+
 ## Encryption
 
 Secrets are encrypted with AES-256-GCM using a shared workspace key (DEK). Each member holds their own copy of the DEK, wrapped with a personal X25519 key pair derived from their passphrase, workspace ID, and a random member ID via Argon2id. The passphrase never leaves the device.
@@ -72,6 +74,12 @@ This MAC and the nonce are stored in their pending member record.
 When the inviter reviews the pending request, they re-derive `invite_priv` from the nonce (using their session key, nothing was stored locally), recompute the shared secret via ECDH, and verify the MAC, confirming that the public key in the record is exactly the one the invitee registered, and was not swapped in storage by an attacker.
 
 ## Commands
+
+All commands accept `-v` / `--verbose`, which prints diagnostic warnings (sync timeouts, discarded documents, failed remote pulls) to stderr. Silent by default.
+
+```sh
+envi --verbose force-sync
+```
 
 ### `envi setup`
 

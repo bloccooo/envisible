@@ -79,6 +79,9 @@ pub struct State {
     pub private_key: [u8; 32],
     /// Tags currently selected for filtering secrets. Empty = show all.
     pub selected_tags: HashSet<String>,
+    /// True when the most recent pull could not reach remote storage, so
+    /// `secrets`/`members` may be based on the local cache alone.
+    pub offline: bool,
 }
 
 impl State {
@@ -124,6 +127,11 @@ impl State {
 
     pub fn with_footer_status(mut self, status: FooterStatus) -> Self {
         self.footer.status = status;
+        self
+    }
+
+    pub fn with_offline(mut self, offline: bool) -> Self {
+        self.offline = offline;
         self
     }
 

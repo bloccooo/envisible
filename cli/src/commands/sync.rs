@@ -20,7 +20,8 @@ pub async fn run() -> Result<()> {
         print!("Syncing vault '{}'... ", vault.name);
         let repo = VaultRepo::new(&vault.id, &config.member_id, &vault.storage)?;
         match repo.pull().await {
-            Ok(mut doc) => {
+            Ok(outcome) => {
+                let mut doc = outcome.doc;
                 let private_key =
                     derive_private_key(&passphrase, &vault.id, &config.member_id)?;
                 let signing_key = derive_signing_key(&private_key);

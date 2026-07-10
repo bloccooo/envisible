@@ -44,6 +44,7 @@ pub async fn run(
     device_name: String,
     vault_name: String,
     storage_config: StorageConfig,
+    offline: bool,
 ) -> Result<()> {
     enable_raw_mode().map_err(|e| Error::Other(e.to_string()))?;
     let mut stdout = io::stdout();
@@ -60,6 +61,7 @@ pub async fn run(
         device_name,
         vault_name,
         storage_config,
+        offline,
     )
     .await;
 
@@ -81,6 +83,7 @@ async fn run_app(
     device_name: String,
     vault_name: String,
     storage_config: StorageConfig,
+    offline: bool,
 ) -> Result<()> {
     let repo = Arc::new(repo);
     let vault_id = {
@@ -103,6 +106,7 @@ async fn run_app(
             rotate_dek: false,
             private_key: session.private_key,
             selected_tags: HashSet::new(),
+            offline,
         },
     ));
 
@@ -110,7 +114,7 @@ async fn run_app(
     let mut state = initial_state;
     let mut router = Router::new(tx.clone(), state.clone());
     let mut persist_task: Option<JoinHandle<bool>> = None;
-    let mut sync_task: Option<JoinHandle<Option<Vec<u8>>>> = None;
+    let mut sync_task: Option<JoinHandle<Option<(Vec<u8>, bool)>>> = None;
 
     loop {
         // Check if the background persist task has completed.
@@ -132,14 +136,19 @@ async fn run_app(
             if handle.is_finished() {
                 let result = sync_task.take().unwrap().await.unwrap_or(None);
                 let status = match result {
-                    Some(bytes) => match AutoCommit::load(&bytes) {
+                    Some((bytes, remote_unreachable)) => match AutoCommit::load(&bytes) {
                         Ok(mut pulled) => {
                             let _ = doc.merge(&mut pulled);
-                            let new_state = derive_state(&doc, &session, &state);
-                            state = Arc::new(
-                                new_state
-                                    .with_footer_status(FooterStatus::Ok("✓ synced".to_string())),
-                            );
+                            let new_state =
+                                derive_state(&doc, &session, &state).with_offline(remote_unreachable);
+                            let sync_status = if remote_unreachable {
+                                FooterStatus::Error(
+                                    "offline — synced from local cache only".to_string(),
+                                )
+                            } else {
+                                FooterStatus::Ok("✓ synced".to_string())
+                            };
+                            state = Arc::new(new_state.with_footer_status(sync_status));
                             router.update(state.clone()).await;
                             continue;
                         }
@@ -206,7 +215,11 @@ async fn run_app(
                         router.update(state.clone()).await;
                         let repo_clone = Arc::clone(&repo);
                         sync_task = Some(tokio::spawn(async move {
-                            repo_clone.pull().await.ok().map(|mut d| d.save())
+                            repo_clone
+                                .pull()
+                                .await
+                                .ok()
+                                .map(|mut outcome| (outcome.doc.save(), outcome.remote_unreachable))
                         }));
                     }
                 }

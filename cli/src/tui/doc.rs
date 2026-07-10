@@ -250,5 +250,6 @@ pub fn derive_state(doc: &AutoCommit, session: &Session, current: &State) -> Sta
         rotate_dek: false,
         private_key: current.private_key,
         selected_tags: current.selected_tags.clone(),
+        offline: current.offline,
     }
 }

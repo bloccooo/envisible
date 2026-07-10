@@ -4,6 +4,10 @@ use envi::{agent, commands};
 #[derive(Parser)]
 #[command(name = "envi", about = "Encrypted team secret manager", version)]
 struct Cli {
+    /// Print diagnostic warnings (sync retries, discarded documents, timeouts) to stderr
+    #[arg(short, long, global = true)]
+    verbose: bool,
+
     #[command(subcommand)]
     command: Option<Command>,
 }
@@ -56,6 +60,7 @@ enum Command {
 #[tokio::main]
 async fn main() {
     let cli = Cli::parse();
+    lib::log::set_warnings_enabled(cli.verbose);
 
     let result = match cli.command.unwrap_or(Command::Ui) {
         Command::Setup { invite } => commands::setup::run(invite).await,

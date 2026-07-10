@@ -424,7 +424,7 @@ pub fn unlock_document(doc: &AutoCommit, private_key: &[u8; 32]) -> Result<Sessi
     let pub_key_b64 = B64.encode(public_key);
 
     let member = vault_doc.members.values().find(|m| m.public_key == pub_key_b64).ok_or_else(|| {
-        eprintln!(
+        crate::warn_log!(
             "warning: no member in vault {} matches the derived public key ({} member(s) in the pulled document) — wrong passphrase, stale config, or the pulled document is missing your membership",
             vault_doc.id,
             vault_doc.members.len()

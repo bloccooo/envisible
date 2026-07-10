@@ -19,6 +19,13 @@ pub struct VaultRepo {
     local_storage: StorageBackend,
 }
 
+pub struct PullOutcome {
+    pub doc: AutoCommit,
+    /// True if the remote pull errored or timed out during this call, meaning
+    /// `doc` may be based on the local cache alone rather than the latest remote state.
+    pub remote_unreachable: bool,
+}
+
 impl VaultRepo {
     pub fn new(vault_id: &str, member_id: &str, storage: &StorageConfig) -> Result<Self> {
         let remote_storage = StorageBackend::new(storage)?;
@@ -42,41 +49,42 @@ impl VaultRepo {
         storage: &StorageBackend,
         label: &str,
         max_timeout: Option<Duration>,
-    ) -> Result<Vec<AutoCommit>> {
+    ) -> Result<(Vec<AutoCommit>, bool)> {
         let prefix = pull_prefix(&self.vault_id);
 
-        let unverified_documents = match max_timeout {
+        let (unverified_documents, reachable) = match max_timeout {
             Some(max_timeout) => match timeout(max_timeout, storage.pull(&prefix)).await {
-                Ok(Ok(documents)) => documents,
+                Ok(Ok(documents)) => (documents, true),
                 Ok(Err(e)) => {
-                    eprintln!(
+                    crate::warn_log!(
                         "warning: {label} pull for vault {} failed ({e}) — treating as empty",
                         self.vault_id
                     );
-                    vec![]
+                    (vec![], false)
                 }
                 Err(_) => {
-                    eprintln!(
+                    crate::warn_log!(
                         "warning: {label} pull for vault {} timed out after {}s — treating as empty",
                         self.vault_id,
                         max_timeout.as_secs()
                     );
-                    vec![]
+                    (vec![], false)
                 }
             },
-            None => storage.pull(&prefix).await?,
+            None => (storage.pull(&prefix).await?, true),
         };
 
-        Ok(verify_documents(unverified_documents))
+        Ok((verify_documents(unverified_documents), reachable))
     }
 
-    pub async fn pull(&self) -> Result<AutoCommit> {
-        let local_documents = self
+    pub async fn pull(&self) -> Result<PullOutcome> {
+        let (local_documents, _) = self
             .pull_verified_documents(&self.local_storage, "local", None)
             .await?;
-        let remote_documents = self
+        let (remote_documents, remote_reachable) = self
             .pull_verified_documents(&self.remote_storage, "remote", Some(REMOTE_TIMEOUT))
             .await?;
+        let remote_unreachable = !remote_reachable;
 
         // Hydrate every candidate (local and remote) once, pairing each with its
         // state so the max compaction date reflects both sources — otherwise an
@@ -102,7 +110,7 @@ impl VaultRepo {
             .filter_map(|(d, s)| match s {
                 Some(s) if s.compaction_date.unwrap_or(0) == max_compaction_date => Some(d),
                 Some(s) => {
-                    eprintln!(
+                    crate::warn_log!(
                         "warning: discarding a document for vault {} — its compaction date ({:?}) does not match the newest known compaction date ({})",
                         self.vault_id, s.compaction_date, max_compaction_date
                     );
@@ -118,13 +126,16 @@ impl VaultRepo {
         });
 
         if merged.is_none() {
-            eprintln!(
+            crate::warn_log!(
                 "warning: no usable document found locally or remotely for vault {} — initializing an empty vault; unlocking against it will fail with 'not a member of this vault'",
                 self.vault_id
             );
         }
 
-        Ok(merged.unwrap_or_else(|| init_vault(&self.vault_id)))
+        Ok(PullOutcome {
+            doc: merged.unwrap_or_else(|| init_vault(&self.vault_id)),
+            remote_unreachable,
+        })
     }
 
     /// Sign the document then push to local cache and remote storage.
@@ -148,11 +159,11 @@ impl VaultRepo {
         // Best-effort remote push with timeout
         match timeout(REMOTE_TIMEOUT, self.remote_storage.push(&push, data)).await {
             Ok(Ok(())) => {}
-            Ok(Err(e)) => eprintln!(
+            Ok(Err(e)) => crate::warn_log!(
                 "warning: remote push for vault {} failed ({e}) — local cache is ahead of remote until the next successful sync",
                 self.vault_id
             ),
-            Err(_) => eprintln!(
+            Err(_) => crate::warn_log!(
                 "warning: remote push for vault {} timed out after {}s — local cache is ahead of remote until the next successful sync",
                 self.vault_id,
                 REMOTE_TIMEOUT.as_secs()
@@ -172,7 +183,7 @@ fn verify_documents(files: Vec<Vec<u8>>) -> Vec<AutoCommit> {
             let vault_doc = VaultDocument::try_from(&doc).ok()?;
 
             if vault_doc.document_signature.is_empty() {
-                eprintln!("warning: skipping unsigned member file");
+                crate::warn_log!("warning: skipping unsigned member file");
                 return None;
             }
 
@@ -180,7 +191,7 @@ fn verify_documents(files: Vec<Vec<u8>>) -> Vec<AutoCommit> {
             let member = vault_doc.members.get(member_id)?;
 
             if member.signing_key.is_empty() {
-                eprintln!(
+                crate::warn_log!(
                     "warning: skipping file signed by member {member_id} with no registered signing key"
                 );
                 return None;
@@ -194,7 +205,7 @@ fn verify_documents(files: Vec<Vec<u8>>) -> Vec<AutoCommit> {
             ) {
                 Ok(()) => Some(doc),
                 Err(_) => {
-                    eprintln!(
+                    crate::warn_log!(
                         "warning: skipping member file with invalid signature (member {member_id})"
                     );
                     None
@@ -396,7 +407,7 @@ mod tests {
             local_storage: fs_backend(local.path()),
         };
 
-        let doc = repo.pull().await.unwrap();
+        let doc = repo.pull().await.unwrap().doc;
         let vault_doc = VaultDocument::try_from(&doc).unwrap();
         assert_eq!(
             vault_doc.compaction_date,
@@ -439,7 +450,7 @@ mod tests {
             local_storage: fs_backend(local.path()),
         };
 
-        let doc = repo.pull().await.unwrap();
+        let doc = repo.pull().await.unwrap().doc;
         let vault_doc = VaultDocument::try_from(&doc).unwrap();
         // Both members' data should appear after merging the two compacted docs.
         assert!(vault_doc.members.contains_key("m1"));
@@ -477,7 +488,7 @@ mod tests {
             local_storage: fs_backend(local.path()),
         };
 
-        let doc = repo.pull().await.unwrap();
+        let doc = repo.pull().await.unwrap().doc;
         let vault_doc = VaultDocument::try_from(&doc).unwrap();
         // Only m1's compacted doc should be used; m2's is excluded.
         assert_eq!(vault_doc.compaction_date, Some(3000));
@@ -517,7 +528,7 @@ mod tests {
             local_storage: fs_backend(local.path()),
         };
 
-        let doc = repo.pull().await.unwrap();
+        let doc = repo.pull().await.unwrap().doc;
         let vault_doc = VaultDocument::try_from(&doc).unwrap();
         assert_eq!(vault_doc.compaction_date, Some(1_778_420_931));
         assert!(
@@ -559,7 +570,7 @@ mod tests {
             local_storage: fs_backend(local.path()),
         };
 
-        let doc = repo.pull().await.unwrap();
+        let doc = repo.pull().await.unwrap().doc;
         let vault_doc = VaultDocument::try_from(&doc).unwrap();
         assert_eq!(
             vault_doc.compaction_date,
@@ -604,7 +615,7 @@ mod tests {
             local_storage: fs_backend(local.path()),
         };
 
-        let doc = repo.pull().await.unwrap();
+        let doc = repo.pull().await.unwrap().doc;
         let vault_doc = VaultDocument::try_from(&doc).unwrap();
         // Normal CRDT merge: both members should appear.
         assert!(vault_doc.members.contains_key("m1"));
@@ -668,7 +679,7 @@ mod tests {
             local_storage: fs_backend(local.path()),
         };
 
-        let doc = repo.pull().await.unwrap();
+        let doc = repo.pull().await.unwrap().doc;
         let vault_doc = VaultDocument::try_from(&doc).unwrap();
         assert!(
             vault_doc.members.contains_key(member_id),
