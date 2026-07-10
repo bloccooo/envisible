@@ -13,19 +13,31 @@ use std::{
     time::Duration,
 };
 
-/// Returns the controlling TTY of the current process (e.g. "/dev/pts/3").
-/// Returns an empty string if there is no TTY (headless/CI/daemon).
-fn get_tty() -> String {
-    unsafe {
-        let ptr = libc::ttyname(libc::STDIN_FILENO);
-        if ptr.is_null() {
-            return String::new();
-        }
-        std::ffi::CStr::from_ptr(ptr).to_string_lossy().into_owned()
+/// Identifies the current terminal session for key scoping.
+///
+/// This is the session leader's PID plus its start time, not the TTY device path.
+/// TTY paths (e.g. `/dev/ttys003`) are recycled by the OS once a terminal closes, so a
+/// freshly opened terminal can be handed the exact same path an old one used — which let
+/// it inherit that old session's cached key from the agent. A (pid, start_time) pair is
+/// only reused if the OS recycles the PID *and* spawns the new process in the same second,
+/// which doesn't happen in practice, and it changes the moment the old shell exits since a
+/// new terminal always spawns a brand new session leader.
+fn get_session_id() -> String {
+    let sid = unsafe { libc::getsid(0) };
+    if sid <= 0 {
+        return String::new();
+    }
+
+    let pid = sysinfo::Pid::from_u32(sid as u32);
+    let mut sys = sysinfo::System::new();
+    sys.refresh_processes(sysinfo::ProcessesToUpdate::Some(&[pid]), true);
+    match sys.process(pid) {
+        Some(process) => format!("{sid}:{}", process.start_time()),
+        None => sid.to_string(),
     }
 }
 
-const DEFAULT_TTL_SECS: u64 = 8 * 3600;
+const DEFAULT_TTL_SECS: u64 = 30 * 60;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 struct AgentInfo {
@@ -188,7 +200,7 @@ impl AgentClient {
         let resp = self.request(&Request::GetKey {
             token: self.token.clone(),
             vault_id: vault_id.to_string(),
-            session_id: get_tty(),
+            session_id: get_session_id(),
         })?;
         if !resp.ok {
             return None;
@@ -201,7 +213,7 @@ impl AgentClient {
         let _ = self.request(&Request::StoreKey {
             token: self.token.clone(),
             vault_id: vault_id.to_string(),
-            session_id: get_tty(),
+            session_id: get_session_id(),
             key: hex::encode(key),
         });
     }
@@ -303,7 +315,7 @@ async fn run_server() -> Result<()> {
     let la = Arc::clone(&last_activity);
     tokio::spawn(async move {
         loop {
-            tokio::time::sleep(Duration::from_secs(300)).await;
+            tokio::time::sleep(Duration::from_secs(60)).await;
             let elapsed = la.lock().unwrap().elapsed().as_secs();
             if elapsed > DEFAULT_TTL_SECS {
                 let _ = std::fs::remove_file(agent_file());

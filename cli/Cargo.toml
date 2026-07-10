@@ -23,6 +23,7 @@ autosurgeon = { workspace = true }
 
 rand = { workspace = true }
 libc = "0.2"
+sysinfo = "0.39"
 clap = { version = "4", features = ["derive"] }
 ratatui = "0.30"
 crossterm = "0.29"
