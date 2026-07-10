@@ -46,6 +46,7 @@ pub async fn run() -> Result<()> {
     let agent = crate::agent::AgentClient::connect_or_start();
     let private_key = if let Some(ref agent) = agent {
         if let Some(key) = agent.get_key(&vault.id) {
+            eprintln!("using cached key from envi agent for vault {}", vault.id);
             key
         } else {
             derive_private_key(&prompt_passphrase()?, &vault.id, &config.member_id)?

@@ -1,3 +1,4 @@
 /target
 *.envi.enc
 envi*
+.DS_Store

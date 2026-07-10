@@ -40,6 +40,7 @@ impl VaultRepo {
     async fn pull_verified_documents(
         &self,
         storage: &StorageBackend,
+        label: &str,
         max_timeout: Option<Duration>,
     ) -> Result<Vec<AutoCommit>> {
         let prefix = pull_prefix(&self.vault_id);
@@ -47,7 +48,21 @@ impl VaultRepo {
         let unverified_documents = match max_timeout {
             Some(max_timeout) => match timeout(max_timeout, storage.pull(&prefix)).await {
                 Ok(Ok(documents)) => documents,
-                _ => vec![],
+                Ok(Err(e)) => {
+                    eprintln!(
+                        "warning: {label} pull for vault {} failed ({e}) — treating as empty",
+                        self.vault_id
+                    );
+                    vec![]
+                }
+                Err(_) => {
+                    eprintln!(
+                        "warning: {label} pull for vault {} timed out after {}s — treating as empty",
+                        self.vault_id,
+                        max_timeout.as_secs()
+                    );
+                    vec![]
+                }
             },
             None => storage.pull(&prefix).await?,
         };
@@ -57,12 +72,12 @@ impl VaultRepo {
 
     pub async fn pull(&self) -> Result<AutoCommit> {
         let local_documents = self
-            .pull_verified_documents(&self.local_storage, None)
+            .pull_verified_documents(&self.local_storage, "local", None)
             .await?;
         let local_document = merge_documents(local_documents);
 
         let remote_documents = self
-            .pull_verified_documents(&self.remote_storage, Some(REMOTE_TIMEOUT))
+            .pull_verified_documents(&self.remote_storage, "remote", Some(REMOTE_TIMEOUT))
             .await?;
 
         // Hydrate each remote doc once, pair with its state, reuse for both passes.
@@ -92,23 +107,31 @@ impl VaultRepo {
 
         if let Some(local) = local_document {
             let s = VaultDocument::try_from(&local).ok();
+            let local_date = s.as_ref().map(|s| s.compaction_date.unwrap_or(0));
 
-            if s.map(|s| s.compaction_date.unwrap_or(0) == max_remote_compaction_date)
-                .unwrap_or(false)
-            {
+            if local_date == Some(max_remote_compaction_date) {
                 all.push(local);
+            } else {
+                eprintln!(
+                    "warning: discarding local cached document for vault {} — its compaction date ({:?}) does not match the remote compaction date ({}); if the remote is unreachable this will fall back to an empty vault",
+                    self.vault_id, local_date, max_remote_compaction_date
+                );
             }
         }
 
-        let merged = all
-            .into_iter()
-            .reduce(|mut a, mut b| {
-                let _ = a.merge(&mut b);
-                a
-            })
-            .unwrap_or_else(|| init_vault(&self.vault_id));
+        let merged = all.into_iter().reduce(|mut a, mut b| {
+            let _ = a.merge(&mut b);
+            a
+        });
 
-        Ok(merged)
+        if merged.is_none() {
+            eprintln!(
+                "warning: no usable document found locally or remotely for vault {} — initializing an empty vault; unlocking against it will fail with 'not a member of this vault'",
+                self.vault_id
+            );
+        }
+
+        Ok(merged.unwrap_or_else(|| init_vault(&self.vault_id)))
     }
 
     /// Sign the document then push to local cache and remote storage.
@@ -130,7 +153,18 @@ impl VaultRepo {
         self.local_storage.push(&push, data.clone()).await?;
 
         // Best-effort remote push with timeout
-        let _ = timeout(REMOTE_TIMEOUT, self.remote_storage.push(&push, data)).await;
+        match timeout(REMOTE_TIMEOUT, self.remote_storage.push(&push, data)).await {
+            Ok(Ok(())) => {}
+            Ok(Err(e)) => eprintln!(
+                "warning: remote push for vault {} failed ({e}) — local cache is ahead of remote until the next successful sync",
+                self.vault_id
+            ),
+            Err(_) => eprintln!(
+                "warning: remote push for vault {} timed out after {}s — local cache is ahead of remote until the next successful sync",
+                self.vault_id,
+                REMOTE_TIMEOUT.as_secs()
+            ),
+        }
 
         Ok(())
     }
