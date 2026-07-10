@@ -74,50 +74,43 @@ impl VaultRepo {
         let local_documents = self
             .pull_verified_documents(&self.local_storage, "local", None)
             .await?;
-        let local_document = merge_documents(local_documents);
-
         let remote_documents = self
             .pull_verified_documents(&self.remote_storage, "remote", Some(REMOTE_TIMEOUT))
             .await?;
 
-        // Hydrate each remote doc once, pair with its state, reuse for both passes.
-        let remote_docs_with_state: Vec<(AutoCommit, Option<VaultDocument>)> = remote_documents
+        // Hydrate every candidate (local and remote) once, pairing each with its
+        // state so the max compaction date reflects both sources — otherwise an
+        // unreachable remote (empty candidate list) forces the max down to 0 and
+        // discards an already-compacted local cache. See vault_repo tests below.
+        let docs_with_state: Vec<(AutoCommit, Option<VaultDocument>)> = local_documents
             .into_iter()
+            .chain(remote_documents)
             .map(|d| {
                 let s = VaultDocument::try_from(&d).ok();
                 (d, s)
             })
             .collect();
 
-        let max_remote_compaction_date = remote_docs_with_state
+        let max_compaction_date = docs_with_state
             .iter()
             .filter_map(|(_, s)| s.as_ref().map(|s| s.compaction_date.unwrap_or(0)))
             .max()
             .unwrap_or(0);
 
-        let mut all: Vec<AutoCommit> = remote_docs_with_state
+        let all: Vec<AutoCommit> = docs_with_state
             .into_iter()
-            .filter(|(_, s)| {
-                s.as_ref()
-                    .map(|s| s.compaction_date.unwrap_or(0) == max_remote_compaction_date)
-                    .unwrap_or(false)
+            .filter_map(|(d, s)| match s {
+                Some(s) if s.compaction_date.unwrap_or(0) == max_compaction_date => Some(d),
+                Some(s) => {
+                    eprintln!(
+                        "warning: discarding a document for vault {} — its compaction date ({:?}) does not match the newest known compaction date ({})",
+                        self.vault_id, s.compaction_date, max_compaction_date
+                    );
+                    None
+                }
+                None => None,
             })
-            .map(|(d, _)| d)
             .collect();
-
-        if let Some(local) = local_document {
-            let s = VaultDocument::try_from(&local).ok();
-            let local_date = s.as_ref().map(|s| s.compaction_date.unwrap_or(0));
-
-            if local_date == Some(max_remote_compaction_date) {
-                all.push(local);
-            } else {
-                eprintln!(
-                    "warning: discarding local cached document for vault {} — its compaction date ({:?}) does not match the remote compaction date ({}); if the remote is unreachable this will fall back to an empty vault",
-                    self.vault_id, local_date, max_remote_compaction_date
-                );
-            }
-        }
 
         let merged = all.into_iter().reduce(|mut a, mut b| {
             let _ = a.merge(&mut b);
@@ -209,13 +202,6 @@ fn verify_documents(files: Vec<Vec<u8>>) -> Vec<AutoCommit> {
             }
         })
         .collect()
-}
-
-fn merge_documents(documents: Vec<AutoCommit>) -> Option<AutoCommit> {
-    documents.into_iter().reduce(|mut a, mut b| {
-        let _ = a.merge(&mut b);
-        a
-    })
 }
 
 fn init_vault(vault_id: &str) -> AutoCommit {
@@ -499,6 +485,86 @@ mod tests {
         assert!(
             !vault_doc.members.contains_key("m2"),
             "uncompacted peer should be excluded"
+        );
+    }
+
+    #[tokio::test]
+    async fn pull_uses_local_cache_when_remote_unreachable() {
+        // Regression test: the remote yields nothing (unreachable, timed out, or
+        // simply empty) while the local cache holds an already-compacted doc.
+        // Before the fix, max_remote_compaction_date was computed only from the
+        // (empty) remote set, so it came out as 0; the local doc's nonzero
+        // compaction date then failed the equality check and was discarded,
+        // and pull() fell back to init_vault() — an empty, memberless doc that
+        // makes every subsequent unlock_document() call fail with NotAMember.
+        let remote = TempDir::new().unwrap();
+        let local = TempDir::new().unwrap();
+        let vault_id = "vault-offline";
+        let member_id = "m1";
+
+        fs_backend(local.path())
+            .push(
+                &push_path(vault_id, member_id),
+                make_doc_bytes(vault_id, member_id, 1, Some(1_778_420_931)),
+            )
+            .await
+            .unwrap();
+
+        let repo = VaultRepo {
+            vault_id: vault_id.to_string(),
+            member_id: member_id.to_string(),
+            remote_storage: fs_backend(remote.path()), // empty: nothing ever pushed
+            local_storage: fs_backend(local.path()),
+        };
+
+        let doc = repo.pull().await.unwrap();
+        let vault_doc = VaultDocument::try_from(&doc).unwrap();
+        assert_eq!(vault_doc.compaction_date, Some(1_778_420_931));
+        assert!(
+            vault_doc.members.contains_key(member_id),
+            "local cached membership must survive an unreachable remote"
+        );
+    }
+
+    #[tokio::test]
+    async fn pull_prefers_local_when_local_compaction_newer_than_remote() {
+        let remote = TempDir::new().unwrap();
+        let local = TempDir::new().unwrap();
+        let vault_id = "vault-local-ahead";
+        let member_id = "m1";
+
+        // Remote still has the pre-compaction state (e.g. the compaction's
+        // best-effort remote push failed or hasn't landed yet).
+        write_to_remote(
+            &fs_backend(remote.path()),
+            vault_id,
+            member_id,
+            make_doc_bytes(vault_id, member_id, 1, Some(1000)),
+        )
+        .await;
+
+        // Local already compacted again, more recently.
+        fs_backend(local.path())
+            .push(
+                &push_path(vault_id, member_id),
+                make_doc_bytes(vault_id, member_id, 1, Some(2000)),
+            )
+            .await
+            .unwrap();
+
+        let repo = VaultRepo {
+            vault_id: vault_id.to_string(),
+            member_id: member_id.to_string(),
+            remote_storage: fs_backend(remote.path()),
+            local_storage: fs_backend(local.path()),
+        };
+
+        let doc = repo.pull().await.unwrap();
+        let vault_doc = VaultDocument::try_from(&doc).unwrap();
+        assert_eq!(
+            vault_doc.compaction_date,
+            Some(2000),
+            "should prefer the newer local compaction over stale remote"
         );
     }
 

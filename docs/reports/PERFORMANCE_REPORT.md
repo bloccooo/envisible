@@ -3,6 +3,7 @@
 **Reviewer role:** Claude Code
 **Codebase version:** 0.0.39  
 **Date:** 2026-05-09
+**Fix tracking:** [`PERFORMANCE_TODO.md`](./PERFORMANCE_TODO.md)
 
 ---
 

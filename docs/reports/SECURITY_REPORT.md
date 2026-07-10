@@ -4,6 +4,7 @@
 **Codebase version:** 0.0.39  
 **Date:** 2026-05-09  
 **Scope:** Full codebase — cryptographic design, protocol correctness, key management, secrets handling, inter-process communication, and operational security
+**Fix tracking:** [`SECURITY_TODO.md`](./SECURITY_TODO.md)
 
 ---
 

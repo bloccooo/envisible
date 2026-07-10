@@ -2,6 +2,16 @@
 
 **Date:** 2026-07-10
 **Symptom:** Login (`envi ui`, `envi exec`) intermittently fails with `not a member of this vault`; on other runs the same vault unlocks fine (sometimes without a passphrase prompt).
+**Status:** Root cause fixed (Fix 1); reproduced live in the field and confirmed by warning logs, see section 2. Fixes 2–6 still open.
+
+## Fix tracking
+
+- [x] **Fix 1 — `pull()`: never let a failed remote pull erase the local vault** (critical) — pool local + remote candidates before computing max compaction date, `lib/src/vault_repo.rs::pull()`. Verified against the actual failure log; regression tests `pull_uses_local_cache_when_remote_unreachable` and `pull_prefers_local_when_local_compaction_newer_than_remote` added.
+- [ ] **Fix 2 — distinguish "remote unavailable" from "remote empty" and surface it** (high) — warning logs added (this session), but `pull()` still silently falls back to `init_vault()` if truly nothing is found anywhere; no dedicated error/UI surfacing yet.
+- [ ] **Fix 3 — fall back to a passphrase prompt when the agent's cached key fails** (high) — not yet implemented; `ui.rs`/`exec.rs` still error out on a stale cached key instead of re-prompting.
+- [ ] **Fix 4 — make the `NotAMember` message actionable** (medium) — partially: a diagnostic warning was added at the throw site (`lib/src/crypto.rs::unlock_document`), but the user-facing error text is unchanged.
+- [ ] **Fix 5 — refresh the local cache on successful remote pull** (medium) — not yet implemented.
+- [ ] **Fix 6 — make silent drops observable** (low) — done for the paths covered by this incident (see warning logs added throughout `vault_repo.rs` and `crypto.rs`); not audited beyond that.
 
 ---
 

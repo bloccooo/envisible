@@ -1,6 +1,7 @@
 # Security Audit TODO
 
 Findings from internal security audit. Ordered by severity.
+Tracks fixes for [`SECURITY_REPORT.md`](./SECURITY_REPORT.md). Check an item off and note the commit when it's applied.
 
 ---
 
