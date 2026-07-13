@@ -14,7 +14,7 @@ jobs:
     name: Test
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - uses: dtolnay/rust-toolchain@stable
       - uses: Swatinem/rust-cache@v2
       - name: Run tests
@@ -24,7 +24,7 @@ jobs:
     name: Build check
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - uses: dtolnay/rust-toolchain@stable
       - uses: Swatinem/rust-cache@v2
       - name: Build
@@ -38,7 +38,7 @@ jobs:
       bumped: ${{ steps.check.outputs.bumped }}
       version: ${{ steps.check.outputs.version }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
         with:
           fetch-depth: 2
       - name: Check for version bump
@@ -71,7 +71,7 @@ jobs:
             target: x86_64-apple-darwin
             artifact: envi-darwin-x64
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - name: Install musl tools (Linux)
         if: runner.os == 'Linux'
         run: sudo apt-get install -y musl-tools
@@ -94,7 +94,7 @@ jobs:
     if: needs.version.outputs.bumped == 'true'
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - uses: actions/download-artifact@v4
         with:
           merge-multiple: true
