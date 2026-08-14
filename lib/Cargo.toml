@@ -15,7 +15,7 @@ tokio = { workspace = true }
 argon2 = "0.5"
 x25519-dalek = { version = "2", features = ["static_secrets"] }
 ed25519-dalek = { version = "2", features = ["rand_core"] }
-aes-gcm = "0.10"
+aes-gcm = "0.11"
 hmac = "0.13"
 hkdf = "0.13"
 sha2 = "0.11"
