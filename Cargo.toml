@@ -12,7 +12,7 @@ serde_json = "1"
 thiserror = "1"
 base64 = "0.22"
 automerge = "0.10"
-autosurgeon = "0.12"
+autosurgeon = "0.13"
 rand = "0.8.6"
 
 [profile.release]
